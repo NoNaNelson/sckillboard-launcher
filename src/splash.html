@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'unsafe-inline' https://fonts.googleapis.com; script-src 'unsafe-inline'; media-src 'self' file:; font-src https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<title>scKillboard</title>
+
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:900px;height:377px;overflow:hidden;font-family:'Segoe UI',sans-serif;background:#000}
+
+/* ── Fade-in overlay — starts black, fades out on load ── */
+.fade-overlay{
+  position:fixed;inset:0;z-index:100;
+  background:#000;
+  opacity:1;
+  transition:opacity 1.4s ease;
+  pointer-events:none;
+}
+.fade-overlay.done{opacity:0}
+
+.splash{width:900px;height:377px;position:relative;overflow:hidden;-webkit-app-region:drag}
+.handle-input,.launch-btn,button,input{-webkit-app-region:no-drag}
+
+.splash-video{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.45) saturate(0.2)}
+.splash-left{position:absolute;inset:0;z-index:2;background:linear-gradient(90deg,rgba(0,0,0,0.96) 0%,rgba(0,0,0,0.8) 32%,rgba(0,0,0,0.2) 58%,transparent 100%)}
+.splash-bottom{position:absolute;bottom:0;left:0;right:0;height:110px;z-index:2;background:linear-gradient(to bottom,transparent,#000 100%)}
+.splash-top{position:absolute;top:0;left:0;right:0;height:50px;z-index:2;background:linear-gradient(to bottom,rgba(0,0,0,0.6),transparent)}
+.splash-vignette{position:absolute;inset:0;z-index:2;background:radial-gradient(ellipse at 55% 50%,transparent 38%,rgba(0,0,0,0.5) 100%)}
+.scanlines{position:absolute;inset:0;z-index:2;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.02) 2px,rgba(0,0,0,0.02) 4px)}
+
+/* ── Left content ── */
+.splash-content{position:absolute;z-index:4;left:44px;bottom:28px;width:320px;display:flex;flex-direction:column}
+.brand-big{font-size:42px;font-weight:700;color:#e8e8e8;letter-spacing:1px;margin-bottom:3px;text-shadow:0 2px 10px rgba(0,0,0,0.9);font-family:'Share Tech Mono',monospace}
+.brand-big span{color:#ccc}
+.tagline{font-size:10px;color:#fff;letter-spacing:3.5px;text-transform:uppercase;margin-bottom:12px;opacity:0.55}
+.accent-line{width:36px;height:2px;background:linear-gradient(90deg,#999,transparent);margin-bottom:20px}
+.input-label{font-size:9px;color:#fff;margin-bottom:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.45}
+.handle-input{
+  width:100%;background:rgba(0,0,0,0.55);
+  border:1px solid rgba(255,255,255,0.1);border-radius:2px;
+  color:#e0e0e0;padding:9px 13px;font-size:13px;
+  font-family:'Segoe UI',sans-serif;outline:none;margin-bottom:5px;
+  transition:border-color 0.15s;
+}
+.handle-input:focus{border-color:rgba(255,255,255,0.25)}
+.handle-input::placeholder{color:#2a2a2a}
+.error-msg{font-size:10px;color:#aaa;min-height:14px;margin-bottom:7px}
+.launch-btn{
+  width:100%;border:none;border-radius:2px;
+  background:linear-gradient(180deg,#888,#555);
+  color:#f0f0f0;
+  padding:10px 0;font-size:11px;font-weight:700;cursor:pointer;
+  font-family:'Segoe UI',sans-serif;letter-spacing:2.5px;text-transform:uppercase;
+  transition:filter 0.12s;box-shadow:0 4px 20px rgba(180,180,180,0.2);
+}
+.launch-btn:hover{filter:brightness(1.2)}
+.launch-btn:active{filter:brightness(0.8)}
+.launch-btn:disabled{opacity:0.4;cursor:not-allowed}
+
+/* ── Quote — hidden until fade-in ── */
+.splash-quote{position:absolute;z-index:4;left:50%;top:48%;transform:translate(-10%,-50%);width:340px;text-align:center;pointer-events:none}
+.quote{font-size:11px;color:#fff;line-height:1.9;letter-spacing:2px;text-transform:uppercase;font-family:'Segoe UI',sans-serif;text-shadow:0 0 16px rgba(0,0,0,0.95),0 1px 6px rgba(0,0,0,0.95);transition:opacity 1.2s ease;opacity:0}
+.quote.visible{opacity:0.75}
+.quote.fade{opacity:0}
+
+.splash-footer{position:absolute;bottom:12px;right:16px;z-index:4;font-size:9px;color:rgba(255,255,255,0.12);letter-spacing:.8px;text-transform:uppercase}
+.splash-topright{position:absolute;top:16px;right:20px;z-index:4;font-size:10px;color:rgba(255,255,255,0.1);letter-spacing:2px;text-transform:uppercase;border:1px solid rgba(255,255,255,0.07);padding:3px 9px;border-radius:2px}
+.sc-warning{display:none;margin-bottom:8px;font-size:9px;color:#ff6b6b;letter-spacing:1px;text-transform:uppercase;padding:6px 10px;background:rgba(255,60,60,0.1);border:1px solid rgba(255,60,60,0.25);border-radius:2px;text-align:center}
+.sc-warning.visible{display:block}
+</style>
+</head>
+<body>
+
+<!-- Black overlay fades out on load -->
+</audio>
+
+<div class="fade-overlay" id="fade-overlay"></div>
+
+<div class="splash">
+  <video class="splash-video" autoplay loop muted playsinline>
+    <source src="../assets/vKill_blackhole1.mp4" type="video/mp4">
+  </video>
+  <div class="splash-left"></div>
+  <div class="splash-bottom"></div>
+  <div class="splash-top"></div>
+  <div class="splash-vignette"></div>
+  <div class="scanlines"></div>
+
+  <div class="splash-quote">
+    <div class="quote" id="quote"></div>
+  </div>
+
+  <div class="splash-content">
+    <div class="brand-big">sc<span>Killboard</span></div>
+    <div class="tagline">Star Citizen Kill Tracker</div>
+    <div class="accent-line"></div>
+    <div class="input-label">Username</div>
+    <input class="handle-input" id="username" placeholder="Your scKillboard username" autocomplete="username" spellcheck="false">
+    <div class="input-label" style="margin-top:8px">Password</div>
+    <input class="handle-input" id="password" type="password" placeholder="Your password" autocomplete="current-password">
+    <div class="error-msg" id="error"></div>
+    <div class="sc-warning" id="sc-warning">⚠ Close Star Citizen before launching</div>
+    <button class="launch-btn" id="launch-btn">SIGN IN &amp; LAUNCH</button>
+  </div>
+
+  <div class="splash-topright">scKillboard</div>
+  <div class="splash-footer">v1.4.1 · Star Citizen</div>
+</div>
+
+<!-- Font picker bar -->
+<script>
+window.addEventListener('load', () => {
+  const vid = document.querySelector('.splash-video')
+  if (vid) vid.playbackRate = 1.1
+
+  // Fade in overlay
+  setTimeout(() => {
+    document.getElementById('fade-overlay').classList.add('done')
+  }, 80)
+})
+
+// ── Quotes — appear 8s after load, then cycle every 16s ──
+const QUOTES=[
+  "The quarry never sees the last step.",
+  "Some hunt for food. Others hunt for sport.",
+  "Another trophy for the wall.",
+  "Death is just the end of the chase.",
+  "It is not the prey that chooses the hunt.",
+  "The forest remembers who ran.",
+]
+const quoteEl=document.getElementById('quote')
+let qi=Math.floor(Math.random()*QUOTES.length)
+quoteEl.innerHTML='\u201c'+QUOTES[qi]+'\u201d'
+
+let quoteInterval = null
+function nextQuote(){
+  quoteEl.classList.remove('visible')
+  quoteEl.classList.add('fade')
+  setTimeout(()=>{
+    qi=(qi+1)%QUOTES.length
+    quoteEl.innerHTML='\u201c'+QUOTES[qi]+'\u201d'
+    quoteEl.classList.remove('fade')
+    quoteEl.classList.add('visible')
+  }, 1200)
+}
+
+// Wait 8s then fade in first quote, then start cycle
+setTimeout(() => {
+  quoteEl.classList.add('visible')
+  quoteInterval = setInterval(nextQuote, 16000)
+}, 5000)
+
+// ── SC process warning ──
+const scWarning = document.getElementById('sc-warning')
+if (window.vkb) {
+  window.vkb.on('sc-status', (running) => {
+    if (running) {
+      scWarning.classList.add('visible')
+      launchBtn.disabled = true
+      launchBtn.textContent = 'CLOSE STAR CITIZEN FIRST'
+    } else {
+      scWarning.classList.remove('visible')
+      if (launchBtn.textContent === 'CLOSE STAR CITIZEN FIRST') {
+        launchBtn.textContent = 'LAUNCH'
+      }
+      if (launchBtn.textContent !== 'LAUNCHING…') launchBtn.disabled = false
+    }
+  })
+}
+
+// ── Login & Launch ──
+const usernameEl = document.getElementById('username')
+const passwordEl = document.getElementById('password')
+const errorEl    = document.getElementById('error')
+const launchBtn  = document.getElementById('launch-btn')
+
+async function init() {
+  try {
+    const cfg = await window.vkb.getConfig()
+    if (cfg && cfg.username) usernameEl.value = cfg.username
+  } catch(e) {}
+  usernameEl.focus()
+}
+init()
+
+async function doLaunch() {
+  const username = usernameEl.value.trim()
+  const password = passwordEl.value
+  if (!username || !password) { errorEl.textContent = 'Enter your username and password'; return }
+  errorEl.textContent = ''
+  if (!window.vkb) { errorEl.textContent = 'App not ready — please wait'; return }
+  launchBtn.textContent = 'SIGNING IN…'
+  launchBtn.disabled = true
+  try {
+    const r = await window.vkb.login({ username, password })
+    if (!r.ok) {
+      errorEl.textContent = r.error || 'Login failed'
+      launchBtn.textContent = 'SIGN IN & LAUNCH'
+      launchBtn.disabled = false
+      return
+    }
+    launchBtn.textContent = 'LAUNCHING…'
+    window.vkb.launch(r.sc_handle)
+  } catch(e) {
+    errorEl.textContent = 'Error: ' + e.message
+    launchBtn.textContent = 'SIGN IN & LAUNCH'
+    launchBtn.disabled = false
+  }
+}
+launchBtn.addEventListener('click', doLaunch)
+usernameEl.addEventListener('keydown', e => { if(e.key==='Enter') passwordEl.focus() })
+passwordEl.addEventListener('keydown', e => { if(e.key==='Enter') doLaunch() })
+</script>
+</body>
+</html>

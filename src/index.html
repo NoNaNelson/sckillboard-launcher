@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://www.sckillboard.com https://robertsspaceindustries.com https://cdn.robertsspaceindustries.com https://theverse.robertsspaceindustries.com; img-src 'self' data: https: blob:">
+<title>scKillboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg0:  #000000;
+  --bg1:  #080808;
+  --bg2:  #0d0d0d;
+  --bg3:  #161616;
+  --bg4:  #222222;
+  --tx1:  #e8e8e8;
+  --tx2:  #888888;
+  --tx3:  #444444;
+  --tx4:  #252525;
+  --red:  #888888;
+  --grn:  #aaaaaa;
+  --ora:  #999999;
+  --blu:  #777777;
+  --ac:   #cccccc;
+}
+
+body {
+  background: var(--bg0);
+  color: var(--tx2);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 12px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Background canvas ── */
+#bg { position: fixed; top: 0; left: 0; z-index: 0; pointer-events: none; }
+.layer { position: relative; z-index: 1; }
+
+/* ── Titlebar ── */
+.titlebar {
+  height: 48px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg3);
+  display: flex; align-items: center;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+.vol-ctrl{display:flex;align-items:center;gap:6px;margin-left:10px}
+.vol-mute{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px;padding:2px 4px;line-height:1}
+.vol-mute:hover{color:var(--tx2)}
+.vol-slider{-webkit-appearance:none;width:64px;height:3px;background:var(--bg4);border-radius:2px;outline:none;cursor:pointer}
+.vol-slider::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--tx2);cursor:pointer}
+.vol-slider:hover::-webkit-slider-thumb{background:var(--tx1)}
+.brand .v  { color: var(--tx1); }
+.brand .kb { color: var(--ac); font-family: 'Share Tech Mono', monospace; }
+.brand-ver { font-size: 10px; color: var(--bg4); margin-left: 8px; }
+
+/* Font picker */
+.kill-badge {
+  margin-left: auto;
+  background: var(--bg3); color: var(--tx1);
+  border: 1px solid var(--bg4);
+  font-size: 10px; font-weight: 700;
+  padding: 3px 10px; border-radius: 3px;
+}
+.weather-btn {
+  margin-left: 10px;
+  background: transparent; color: var(--tx3);
+  border: 1px solid var(--bg3); border-radius: 3px;
+  padding: 3px 10px; font-size: 10px; font-weight: 700;
+  font-family: 'Segoe UI', sans-serif; cursor: pointer;
+  letter-spacing: .05em; transition: all 0.12s;
+}
+.weather-btn:hover { background: var(--bg3); color: var(--tx2); }
+.weather-btn.open  { background: var(--bg3); color: var(--tx1); border-color: var(--bg4); }
+
+/* ── Radar sweep animation ── */
+.radar-wrap{position:relative;width:160px;height:160px;margin:0 auto 8px;flex-shrink:0}
+.radar-ring{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(255,255,255,0.07)}
+.radar-ring:nth-child(2){inset:22%;border-color:rgba(255,255,255,0.05)}
+.radar-ring:nth-child(3){inset:44%;border-color:rgba(255,255,255,0.04)}
+.radar-cross{position:absolute;inset:0}
+.radar-cross::before,.radar-cross::after{content:'';position:absolute;background:rgba(255,255,255,0.05)}
+.radar-cross::before{top:50%;left:0;right:0;height:1px;transform:translateY(-50%)}
+.radar-cross::after{left:50%;top:0;bottom:0;width:1px;transform:translateX(-50%)}
+.radar-sweep{
+  position:absolute;inset:0;border-radius:50%;overflow:hidden;
+  animation:sweep 3s linear infinite;
+}
+.radar-sweep::after{
+  content:'';position:absolute;inset:0;
+  background:conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,0.15) 0deg, transparent 60deg, transparent 360deg);
+}
+@keyframes sweep{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.radar-dot{position:absolute;width:4px;height:4px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);opacity:0;animation:ping 3s ease-out infinite}
+@keyframes ping{0%{opacity:0.8;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.5)}}
+.radar-center{position:absolute;top:50%;left:50%;width:5px;height:5px;background:rgba(255,255,255,0.6);border-radius:50%;transform:translate(-50%,-50%);z-index:1}
+.radar-lbl{font-size:9px;color:var(--tx4);text-align:center;letter-spacing:.1em;text-transform:uppercase;margin-top:6px}
+
+/* ── CommArray hacking intro ── */
+.commarray-hack{
+  position:absolute;inset:0;z-index:10;
+  background:var(--bg0);
+  display:flex;align-items:center;justify-content:center;
+}
+.commarray-hack.hidden{display:none}
+.commarray-hack-txt{
+  font-family:'Consolas','Courier New',monospace;
+  font-size:13px;font-weight:700;letter-spacing:.25em;
+  color:var(--tx1);text-transform:uppercase;
+  animation:hackpulse 1.2s ease-in-out infinite;
+}
+@keyframes hackpulse{0%,100%{opacity:0}50%{opacity:1}}
+/* ── CommArray / Weather pane ── */
+.wx-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.wx-pane-body{flex:1;overflow-y:auto;display:grid;grid-template-columns:200px 1fr;gap:0}
+.wx-pane-body::-webkit-scrollbar{width:3px}
+.wx-pane-body::-webkit-scrollbar-thumb{background:var(--bg3)}
+.wx-left{padding:16px 14px;border-right:1px solid var(--bg3);display:flex;flex-direction:column;align-items:center;gap:12px;background:var(--bg1)}
+.wx-right{overflow-y:auto;padding:14px}
+.wx-right::-webkit-scrollbar{width:3px}
+.wx-right::-webkit-scrollbar-thumb{background:var(--bg3)}
+.wx-section{margin-bottom:14px}
+.wx-section:last-child{margin-bottom:0}
+.wx-sec-title{font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bg3)}
+.wx-stats-2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:0}
+.wx-stat2{background:var(--bg2);border:1px solid var(--bg3);border-radius:3px;padding:8px 10px;text-align:center}
+.wx-stat2-val{font-size:18px;font-weight:700;color:var(--tx1);line-height:1}
+.wx-stat2-lbl{font-size:9px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-top:3px}
+.wx-split-bar{display:flex;height:5px;border-radius:3px;overflow:hidden;margin:6px 0}
+.wx-split-a{background:var(--tx2);transition:width .5s}
+.wx-split-b{background:var(--bg4);transition:width .5s}
+.wx-split-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--tx3)}
+.wx-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.wx-bar-row:last-child{margin-bottom:0}
+.wx-bar-lbl{font-size:10px;color:var(--tx3);width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wx-bar-track{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.wx-bar-fill{height:100%;border-radius:2px;background:var(--tx3);transition:width .5s}
+.wx-bar-val{font-size:10px;color:var(--tx2);min-width:24px;text-align:right}
+.wx-spark{display:flex;align-items:flex-end;gap:2px;height:36px}
+.wx-spark-col{flex:1;background:var(--tx4);border-radius:1px 1px 0 0;min-height:2px;transition:height .4s}
+.wx-spark-lbl{display:flex;justify-content:space-between;font-size:8px;color:var(--tx4);margin-top:3px}
+.wx-killer-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bg3)}
+.wx-killer-row:last-child{border-bottom:none}
+.wx-killer-rank{font-size:10px;color:var(--tx3);min-width:14px}
+.wx-killer-av{width:22px;height:22px;border-radius:5px;object-fit:cover;background:var(--bg3);flex-shrink:0}
+.wx-killer-info{flex:1;min-width:0}
+.wx-killer-name{font-size:11px;color:var(--tx1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wx-killer-sub{font-size:9px;color:var(--tx4)}
+.wx-killer-val{font-size:12px;font-weight:700;color:var(--tx1)}
+.wx-loading{font-size:11px;color:var(--tx4);text-align:center;padding:30px 0}
+.wx-refresh-lnk{font-size:9px;color:var(--tx4);cursor:pointer;text-align:center;margin-top:8px}
+.wx-refresh-lnk:hover{color:var(--tx3)}
+.wx-condition{font-size:11px;color:var(--tx2);text-align:center;line-height:1.6;padding:0 8px}
+.wx-condition-lbl{font-size:9px;color:var(--tx4);text-align:center;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+
+/* ── Weather widgets ── */
+.wx-card { background: var(--bg2); border: 1px solid var(--bg3); border-radius: 4px; overflow: hidden; }
+.wx-card-hdr { padding: 8px 12px; border-bottom: 1px solid var(--bg3); font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--tx3); text-transform: uppercase; }
+.wx-card-body { padding: 10px 12px; }
+
+/* Big stat row */
+.wx-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--bg3); }
+.wx-stat { background: var(--bg2); padding: 10px 12px; text-align: center; }
+.wx-stat-val { font-size: 22px; font-weight: 700; line-height: 1; color: var(--tx1); }
+.wx-stat-lbl { font-size: 9px; color: var(--tx3); text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
+
+/* Split bar */
+.wx-split-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 6px 0; }
+.wx-split-a { background: var(--tx2); transition: width 0.4s; }
+.wx-split-b { background: var(--bg4); transition: width 0.4s; }
+.wx-split-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--tx3); }
+
+/* Bar chart */
+.wx-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wx-bar-row:last-child { margin-bottom: 0; }
+.wx-bar-lbl { font-size: 10px; color: var(--tx3); width: 90px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-bar-track { flex: 1; height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.wx-bar-fill { height: 100%; border-radius: 3px; background: var(--tx2); transition: width 0.5s; }
+.wx-bar-val { font-size: 10px; color: var(--tx2); min-width: 24px; text-align: right; }
+
+/* Hour sparkline */
+.wx-spark { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
+.wx-spark-col { flex: 1; background: var(--tx3); border-radius: 1px 1px 0 0; opacity: 0.8; min-height: 2px; transition: height 0.4s; }
+.wx-spark-lbl { display: flex; justify-content: space-between; font-size: 8px; color: var(--tx4); margin-top: 3px; }
+
+/* Top killer row */
+.wx-killer-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bg3); }
+.wx-killer-row:last-child { border-bottom: none; }
+.wx-killer-rank { font-size: 10px; color: var(--tx3); min-width: 14px; }
+.wx-killer-av { width: 24px; height: 24px; border-radius: 5px; object-fit: cover; background: var(--bg3); flex-shrink: 0; }
+.wx-org-row{font-size:11px;color:var(--tx2);padding:4px 0;border-bottom:1px solid var(--bg3)}
+.wx-org-row:last-child{border-bottom:none}
+.wx-beacon-section{margin-top:4px}
+.wx-beacon-active{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bg3)}
+.wx-beacon-active:last-of-type{border-bottom:none;margin-bottom:8px}
+.wx-beacon-name{font-size:12px;color:var(--tx1);flex:1}
+.wx-beacon-exp{font-size:10px;color:var(--tx3)}
+.wx-beacon-pulse{width:8px;height:8px;border-radius:50%;background:#ff7800;flex-shrink:0;animation:beacon-blink 1s ease-in-out infinite}
+@keyframes beacon-blink{0%,100%{opacity:1;box-shadow:0 0 6px #ff7800}50%{opacity:0.2;box-shadow:none}}
+.wx-beacon-btn{margin-top:6px;width:100%;padding:7px 0;background:rgba(255,120,0,0.08);border:1px solid rgba(255,120,0,0.3);border-radius:4px;color:#ff9840;font-size:11px;font-family:inherit;letter-spacing:.08em;cursor:pointer;transition:background .2s,border-color .2s}
+.wx-beacon-btn:hover{background:rgba(255,120,0,0.18);border-color:rgba(255,120,0,0.6)}
+.wx-killer-info { flex: 1; min-width: 0; }
+.wx-killer-name { font-size: 11px; color: var(--tx1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-killer-sub { font-size: 9px; color: var(--tx4); }
+.wx-killer-val { font-size: 12px; font-weight: 700; color: var(--tx1); }
+
+.wx-loading { font-size: 11px; color: var(--tx4); text-align: center; padding: 20px 0; }
+.wx-refresh { font-size: 9px; color: var(--tx4); text-align: right; margin-top: 4px; cursor: pointer; }
+.wx-refresh:hover { color: var(--tx3); }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  background: rgba(0,0,0,0.3);
+  border-bottom: 1px solid var(--bg3);
+  flex-shrink: 0;
+}
+.tab {
+  padding: 9px 18px; font-size: 11px;
+  color: var(--tx3); cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s;
+}
+.tab:hover  { color: var(--tx2); }
+.tab.active { color: var(--tx1); border-bottom-color: var(--ac); }
+
+/* ── Tab panes ── */
+.pane { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.pane.active { display: flex; }
+#pane-weather { position: relative; }
+
+/* ── Kill Feed ── */
+.ctrl-bar {
+  background: rgba(0,0,0,0.4);
+  border-bottom: 1px solid var(--bg3);
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.start-btn {
+  background: var(--bg3); color: var(--tx1);
+  border: 1px solid var(--bg4); border-radius: 3px;
+  padding: 7px 14px; font-size: 11px; font-weight: 700;
+  font-family: 'Segoe UI', sans-serif; cursor: pointer;
+  transition: background 0.12s;
+}
+.start-btn:hover { background: var(--bg4); }
+.start-btn.active { background: var(--bg4); color: var(--tx2); }
+.status-dot { font-size: 10px; }
+.status-txt { font-size: 11px; color: var(--tx3); }
+.clear-btn {
+  margin-left: auto;
+  background: rgba(255,255,255,0.04);
+  color: var(--tx3); border: 1px solid var(--bg3);
+  border-radius: 3px; padding: 5px 12px;
+  font-size: 10px; font-family: 'Segoe UI', sans-serif; cursor: pointer;
+}
+.clear-btn:hover { background: var(--bg3); }
+
+.feed-wrap {
+  flex: 1; overflow-y: auto;
+  padding: 10px 14px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 11px; line-height: 1.9;
+  background: transparent;
+}
+.feed-wrap::-webkit-scrollbar { width: 4px; }
+.feed-wrap::-webkit-scrollbar-track { background: transparent; }
+.feed-wrap::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+
+.log-line { display: flex; gap: 8px; }
+.log-ts   { color: var(--bg4); flex-shrink: 0; }
+.c-ok     { color: var(--tx2); }
+.c-kill   { color: var(--tx1); }
+.c-info   { color: var(--tx3); }
+.c-warn   { color: var(--tx2); }
+.c-error  { color: var(--tx1); }
+.c-session{ color: var(--tx2); }
+
+/* ── Settings ── */
+.settings-wrap { padding: 20px 24px; overflow-y: auto; }
+.section-title {
+  font-size: 11px; font-weight: 600;
+  color: var(--tx1); margin: 20px 0 4px;
+}
+.section-title:first-child { margin-top: 0; }
+.section-line { height: 1px; background: var(--bg3); margin-bottom: 10px; }
+.field-row {
+  display: flex; align-items: center;
+  margin-bottom: 10px; gap: 10px;
+}
+.field-label {
+  font-size: 10px; color: var(--tx3);
+  width: 140px; flex-shrink: 0;
+}
+.field-input {
+  flex: 1; background: var(--bg2);
+  border: 1px solid var(--bg3); border-radius: 3px;
+  color: var(--tx1); padding: 6px 10px;
+  font-size: 11px; font-family: 'Segoe UI', sans-serif;
+  outline: none;
+}
+.field-input:focus { border-color: var(--bg4); }
+.browse-btn, .save-btn, .resync-btn {
+  background: var(--bg3); color: var(--tx2);
+  border: 1px solid var(--bg4); border-radius: 3px;
+  padding: 5px 12px; font-size: 10px;
+  font-family: 'Segoe UI', sans-serif; cursor: pointer;
+}
+.browse-btn:hover, .resync-btn:hover { background: var(--bg4); }
+.save-btn { background: var(--bg3); color: var(--tx1); border-color: var(--bg4); }
+.save-btn:hover { background: var(--bg4); }
+.checkbox-row { display: flex; align-items: center; gap: 8px; }
+.checkbox-row input[type=checkbox] { accent-color: var(--ac); }
+.resync-status { font-size: 10px; color: var(--tx3); margin-top: 4px; }
+
+/* ── About tab ── */
+.about-wrap {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.about-brand { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.about-brand .v  { color: var(--tx1); }
+.about-brand .kb { color: var(--red); }
+.about-divider { width: 120px; height: 1px; background: var(--bg3); margin: 14px 0; }
+.about-text { font-size: 11px; color: var(--tx3); text-align: center; line-height: 2; }
+
+/* ── Statusbar ── */
+.statusbar {
+  height: 22px; background: var(--bg2);
+  border-top: 1px solid var(--bg3);
+  display: flex; align-items: center;
+  padding: 0 12px; gap: 12px;
+  flex-shrink: 0;
+}
+.sb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--grn); }
+.sb-dot.offline { background: var(--red); }
+.sb-txt { font-size: 10px; color: var(--tx3); }
+.sb-sep { font-size: 10px; color: var(--bg4); }
+</style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+</audio>
+
+<div class="layer" style="display:flex;flex-direction:column;height:100vh">
+
+  <!-- Titlebar -->
+  <div class="titlebar layer">
+    <div class="brand" id="brand-title"><span class="v">sc</span><span class="kb">Killboard</span></div>
+    <span class="brand-ver">v1.4.1</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+      <div class="vol-ctrl">
+        <button class="vol-mute" id="vol-mute" title="Mute">🔊</button>
+        <input class="vol-slider" id="vol-slider" type="range" min="0" max="100" value="7" title="Volume">
+      </div>
+      <div class="kill-badge" id="kill-badge">0 kills</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs layer">
+    <div class="tab active" data-tab="feed">  Kill Feed  </div>
+    <div class="tab" data-tab="weather">  CommArray  </div>
+    <div class="tab" data-tab="lfg">  LFG  </div>
+    <div class="tab" data-tab="settings">  Settings  </div>
+    <div class="tab" data-tab="discord">  Discord  </div>
+    <div class="tab" data-tab="about">  About  </div>
+  </div>
+  <!-- "Ruin" and "Investigate" categories removed — Kill Feed's unified
+       Tracking now covers everything they used to show separately. The
+       underlying detection methods are unchanged; this is a UI-only removal. -->
+
+  <!-- Kill Feed -->
+  <div class="pane active layer" id="pane-feed">
+    <div class="ctrl-bar">
+      <button class="start-btn" id="start-btn">▶  Start Tracking</button>
+      <span class="status-dot" id="status-dot" style="color:var(--tx3)">●</span>
+      <span class="status-txt" id="status-txt">Not tracking</span>
+      <button class="clear-btn" id="clear-btn">Clear</button>
+    </div>
+    <div class="feed-wrap" id="feed"></div>
+  </div>
+
+  <!-- CommArray -->
+  <div class="pane layer" id="pane-weather">
+    <div class="commarray-hack" id="commarray-hack">
+      <div class="commarray-hack-txt">Hacking...</div>
+    </div>
+    <div class="wx-pane" id="wx-pane-inner" style="visibility:hidden;flex:1;display:flex;flex-direction:column">
+      <div class="wx-pane-body" id="wx-pane-body">
+        <div class="wx-left">
+          <div class="radar-wrap">
+            <div class="radar-ring"></div>
+            <div class="radar-ring"></div>
+            <div class="radar-ring"></div>
+            <div class="radar-cross"></div>
+            <div class="radar-sweep"></div>
+            <div class="radar-center"></div>
+          </div>
+          <div class="radar-lbl">Combat Radar</div>
+          <div class="wx-condition" id="wx-condition">—</div>
+          <div class="wx-condition-lbl" id="wx-condition-lbl">Scanning…</div>
+          <div class="wx-refresh-lnk" id="wx-refresh-btn">↻ Refresh</div>
+        </div>
+        <div class="wx-right" id="wx-right">
+          <div class="wx-loading">Fetching live data…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LFG -->
+  <div class="pane layer" id="pane-lfg">
+    <div style="padding:16px;height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+
+      <!-- Post a group -->
+      <div style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--tx3);letter-spacing:.08em;margin-bottom:10px">POST A GROUP</div>
+        <div id="lfg-my-group-client" style="display:none;margin-bottom:10px"></div>
+        <div id="lfg-client-form">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <input id="lfg-client-name" placeholder="Group name (e.g. LFM Hathor)" style="background:var(--bg3);border:1px solid var(--bg4);color:var(--tx1);padding:7px 10px;border-radius:4px;font-size:12px;width:100%">
+            <select id="lfg-client-system" style="background:var(--bg3);border:1px solid var(--bg4);color:var(--tx1);padding:7px 10px;border-radius:4px;font-size:12px;width:100%">
+              <option value="Stanton">Stanton</option>
+              <option value="Pyro">Pyro</option>
+              <option value="Nyx">Nyx</option>
+            </select>
+            <button id="lfg-client-post-btn" style="background:rgba(74,143,192,0.15);border:1px solid rgba(74,143,192,0.4);color:#4a8fc0;padding:7px 0;border-radius:4px;font-size:11px;cursor:pointer;letter-spacing:.06em">POST GROUP</button>
+            <div id="lfg-client-status" style="font-size:10px;color:var(--tx3);min-height:14px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active groups board -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:10px;font-weight:700;color:var(--tx3);letter-spacing:.08em">ACTIVE GROUPS</div>
+          <button id="lfg-client-refresh" style="font-size:10px;color:var(--tx3);background:none;border:none;cursor:pointer">↻ Refresh</button>
+        </div>
+        <div id="lfg-client-board" style="display:flex;flex-direction:column;gap:8px">
+          <div style="color:var(--tx3);font-size:11px">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="pane layer" id="pane-settings">
+    <div class="settings-wrap">
+      <div class="section-title">Game Log</div>
+      <div class="section-line"></div>
+      <div class="field-row">
+        <div class="field-label">Game.log Path</div>
+        <input class="field-input" id="log-path" placeholder="C:\...\Game.log">
+        <button class="browse-btn" id="browse-btn">Browse</button>
+      </div>
+
+      <div class="section-title">Your Identity</div>
+      <div class="section-line"></div>
+      <div class="field-row">
+        <div class="field-label">SC Handle</div>
+        <input class="field-input" id="handle-input" readonly tabindex="-1" placeholder="Set when you sign in" title="Your verified RSI handle — set automatically at login and can't be changed here." style="opacity:0.6;cursor:default;pointer-events:none">
+      </div>
+      <div style="font-size:10px;color:var(--tx4);margin:2px 0 0 0;padding-left:2px">🔒 Verified at login — your identity is proven via RSI, not typed.</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <span style="font-size:11px;color:var(--tx3)">Signed in — kills attribute to this account</span>
+        <button class="resync-btn" id="signout-btn" style="background:var(--bg3);color:var(--tx1)">Sign Out</button>
+      </div>
+      <div class="resync-status" id="signout-status"></div>
+
+      <div class="section-title">Personal Discord (optional)</div>
+      <div class="section-line"></div>
+      <div class="field-row">
+        <div class="field-label">Enable</div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="personal-enabled">
+          <label for="personal-enabled" style="font-size:11px;color:var(--tx2);cursor:pointer">
+            Post kills to my own Discord server too
+          </label>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Discord Webhook URL</div>
+        <input class="field-input" id="webhook-url" placeholder="Paste your Discord webhook URL">
+      </div>
+
+      <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
+        <button class="save-btn" id="save-btn">  Save Settings  </button>
+      </div>
+
+      <div style="height:1px;background:var(--bg3);margin:20px 0 10px"></div>
+      <div style="font-size:9px;font-weight:700;color:var(--tx4);letter-spacing:1px;margin-bottom:10px">BETA TOOLS</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:11px;color:var(--tx3)">Resync RSI profiles on dashboard</span>
+        <button class="resync-btn" id="resync-btn">  Resync  </button>
+      </div>
+      <div class="resync-status" id="resync-status"></div>
+    </div>
+  </div>
+
+  <!-- Discord -->
+  <div class="pane layer" id="pane-discord">
+    <div class="discord-wrap">
+      <div class="section-title">Server Status</div>
+      <div class="section-line"></div>
+      <div id="server-status-txt" style="font-size:11px;color:var(--tx3);margin-bottom:8px">● Checking…</div>
+      <button class="resync-btn" id="recheck-btn">Check Again</button>
+
+      <div class="section-title" style="margin-top:24px">Central Kill Feed</div>
+      <div class="section-line"></div>
+      <div style="font-size:11px;color:var(--tx3);line-height:2">
+        All kills are posted to the central feed automatically.<br>
+        No configuration needed.
+      </div>
+
+      <div class="section-title" style="margin-top:24px">Personal Server</div>
+      <div class="section-line"></div>
+      <div style="font-size:11px;color:var(--tx3);line-height:2.2">
+        Post your kills to your own Discord server with a webhook — no bot invite needed. Full guide:
+      </div>
+      <button class="resync-btn" id="discord-setup-btn" style="margin:6px 0 10px;background:#5865f2;color:#fff;border:none">Discord Setup Guide &rarr;</button>
+      <div style="font-size:11px;color:var(--tx3);line-height:2.2">
+        In Discord:<br>
+        1. Server Settings → Integrations → Webhooks → New Webhook<br>
+        2. Choose the channel, then Copy Webhook URL<br>
+        3. Paste it in the Discord Webhook URL field, tick "post to my own server", and save
+      </div>
+    </div>
+  </div>
+
+  <!-- About -->
+  <div class="pane layer" id="pane-about">
+    <div class="about-wrap">
+      <div class="about-brand"><span class="v">sc</span><span class="kb">Killboard</span></div>
+      <div style="font-size:11px;color:var(--tx3)">Version 1.4.1</div>
+      <div class="about-divider"></div>
+      <div class="about-text">
+        Tracks Star Citizen crime events in real time<br>
+        and posts kill cards to Discord.<br><br>
+        Reads Game.log only — no game files modified.<br>
+        No RSI login required.<br><br>
+        Kills only register outside Armistice Zones.<br>
+        Automatically detects new game sessions.
+      </div>
+    </div>
+  </div>
+
+  <!-- Statusbar -->
+  <div class="statusbar layer">
+    <div class="sb-dot" id="sb-dot"></div>
+    <span class="sb-txt" id="sb-server">Checking…</span>
+    <span class="sb-sep">|</span>
+    <span class="sb-txt" id="sb-handle"></span>
+    <span class="sb-sep">|</span>
+    <span class="sb-txt" id="sb-ready">Ready.</span>
+  </div>
+
+</div>
+
+<script>
+(async () => {
+  /* ── Background ── */
+  const canvas = document.getElementById('bg')
+  const ctx    = canvas.getContext('2d')
+
+  function drawBg() {
+    const W = window.innerWidth, H = window.innerHeight
+    canvas.width = W; canvas.height = H
+    const grad = ctx.createLinearGradient(0, 0, 0, H)
+    grad.addColorStop(0,    '#000000')
+    grad.addColorStop(0.45, '#080808')
+    grad.addColorStop(1,    '#000000')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, W, H)
+    const rad = ctx.createRadialGradient(W*0.75, H*0.3, 0, W*0.75, H*0.3, W*0.6)
+    rad.addColorStop(0,   'rgba(80, 80, 80, 0.06)')
+    rad.addColorStop(0.6, 'rgba(40, 40, 40, 0.02)')
+    rad.addColorStop(1,   'rgba(0, 0, 0, 0)')
+    ctx.fillStyle = rad
+    ctx.fillRect(0, 0, W, H)
+  }
+  drawBg()
+  window.addEventListener('resize', drawBg)
+
+  /* ── Config ── */
+  const cfg = await window.vkb.getConfig()
+  document.getElementById('log-path').value       = cfg.log_path || ''
+  document.getElementById('handle-input').value   = cfg.attacker_handle || ''
+  document.getElementById('webhook-url').value     = cfg.personal_webhook || ''
+  document.getElementById('personal-enabled').checked = cfg.personal_enabled || false
+  document.getElementById('sb-handle').textContent = cfg.attacker_handle || ''
+
+  /* ── Tabs ── */
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'))
+      tab.classList.add('active')
+      document.getElementById('pane-' + tab.dataset.tab).classList.add('active')
+    })
+  })
+
+  /* ── Feed ── */
+  const feedEl = document.getElementById('feed')
+  function addLog(type, msg) {
+    const ts   = new Date().toLocaleTimeString('en-AU', { hour12: false })
+    const line = document.createElement('div')
+    line.className = 'log-line'
+    line.innerHTML = `<span class="log-ts">[${ts}]</span><span class="c-${type}">${msg}</span>`
+    feedEl.appendChild(line)
+    feedEl.scrollTop = feedEl.scrollHeight
+  }
+  addLog('ok', `scKillboard v1.4.1 ready.`)
+
+  window.vkb.on('log', (type, msg) => addLog(type, msg))
+
+  /* ── Kill count ── */
+  window.vkb.on('last-kill-handle', handle => {
+    window.__lastKillHandle = handle
+  })
+
+  window.vkb.on('kill-count', count => {
+    document.getElementById('kill-badge').textContent =
+      count + (count === 1 ? ' kill' : ' kills')
+  })
+
+  /* ── Tracking toggle ── */
+  let tracking = false
+  const startBtn  = document.getElementById('start-btn')
+  const statusDot = document.getElementById('status-dot')
+  const statusTxt = document.getElementById('status-txt')
+
+  startBtn.addEventListener('click', () => {
+    if (!tracking) {
+      const logPath = document.getElementById('log-path').value.trim()
+      if (!logPath) { addLog('error', 'Set your Game.log path in Settings first'); return }
+      window.vkb.startTracking(logPath)
+      tracking = true
+      startBtn.textContent = '⏹  Stop Tracking'
+      startBtn.classList.add('active')
+      statusDot.style.color = '#2ecc71'
+      statusTxt.textContent = 'Tracking active'
+      document.getElementById('sb-ready').textContent = 'Tracking'
+    } else {
+      window.vkb.stopTracking()
+      tracking = false
+      startBtn.textContent = '▶  Start Tracking'
+      startBtn.classList.remove('active')
+      statusDot.style.color = "var(--tx3)"
+      statusTxt.textContent = 'Not tracking'
+      document.getElementById('sb-ready').textContent = 'Ready.'
+      addLog('info', 'Tracking stopped.')
+    }
+  })
+
+  /* ── Clear ── */
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    feedEl.innerHTML = ''
+    window.vkb.clearFeed()
+    addLog('ok', 'Feed cleared.')
+  })
+
+  /* ── Browse log ── */
+  document.getElementById('browse-btn').addEventListener('click', () => {
+    window.vkb.browseLog()
+  })
+  window.vkb.on('log-path-selected', path => {
+    document.getElementById('log-path').value = path
+  })
+
+  /* ── Save settings ── */
+  document.getElementById('save-btn').addEventListener('click', () => {
+    const newCfg = {
+      log_path:         document.getElementById('log-path').value.trim(),
+      attacker_handle:  document.getElementById('handle-input').value.trim(),
+      personal_webhook: document.getElementById('webhook-url').value.trim(),
+      personal_enabled: document.getElementById('personal-enabled').checked,
+    }
+    window.vkb.saveConfig(newCfg)
+    document.getElementById('sb-handle').textContent = newCfg.attacker_handle
+    addLog('ok', 'Settings saved.')
+  })
+
+  /* ── Resync ── */
+
+  document.getElementById('resync-btn').addEventListener('click', async () => {
+    const el = document.getElementById('resync-status')
+    el.style.color = '#e67e22'
+    el.textContent = 'Resyncing…'
+    const r = await window.vkb.resyncProfiles()
+    el.style.color = r.ok ? "var(--tx2)" : "var(--tx1)"
+    el.textContent = r.ok ? `Done — ${r.total} players queued` : `Error: ${r.error}`
+  })
+
+  /* ── Sign out ── */
+  document.getElementById('signout-btn').addEventListener('click', async () => {
+    const el = document.getElementById('signout-status')
+    el.style.color = '#e67e22'
+    el.textContent = 'Signing out…'
+    try {
+      await window.vkb.logout()
+      el.style.color = "var(--tx2)"
+      el.textContent = 'Signed out — restart the app to sign in again'
+    } catch (e) {
+      el.style.color = "var(--tx1)"
+      el.textContent = `Error: ${e.message}`
+    }
+  })
+
+  /* ── Server status ── */
+  async function checkServer() {
+    const ok = await window.vkb.checkServer()
+    const dot = document.getElementById('sb-dot')
+    const txt = document.getElementById('sb-server')
+    const discordTxt = document.getElementById('server-status-txt')
+    dot.className   = 'sb-dot' + (ok ? '' : ' offline')
+    txt.textContent = ok ? 'Server online' : 'Server offline'
+    discordTxt.style.color = ok ? "var(--tx2)" : "var(--tx1)"
+    discordTxt.textContent = (ok ? '● Server online' : '● Server unreachable')
+  }
+  checkServer()
+
+  document.getElementById('recheck-btn').addEventListener('click', checkServer)
+  document.getElementById('discord-setup-btn')?.addEventListener('click', () => {
+    if (window.vkb && window.vkb.openExternal) window.vkb.openExternal('https://www.sckillboard.com/#discordbot')
+  })
+
+
+  /* ── CommArray tab ── */
+  let wxLoaded   = false
+  let wxHacking  = false
+
+  function showCommArray() {
+    if (wxHacking) return
+    wxHacking = true
+    const hack  = document.getElementById('commarray-hack')
+    const txt   = hack.querySelector('.commarray-hack-txt')
+    const inner = document.getElementById('wx-pane-inner')
+
+    hack.classList.remove('hidden')
+    hack.style.opacity    = '1'
+    hack.style.transition = ''
+    inner.style.visibility = 'hidden'
+    txt.textContent = 'Hacking...'
+
+    // After 7s switch to "Satellite uplink connected."
+    setTimeout(() => {
+      // Fade out "Hacking..."
+      txt.style.transition = 'opacity 0.4s ease'
+      txt.style.opacity    = '0'
+      setTimeout(() => {
+        txt.textContent = 'Satellite uplink connected.'
+        txt.style.animation = 'none'
+        txt.style.opacity   = '1'
+      }, 400)
+    }, 7000)
+
+    // After 11s (7 + 4) fade out overlay and reveal graphs
+    setTimeout(() => {
+      hack.style.transition = 'opacity 0.8s ease'
+      hack.style.opacity    = '0'
+      inner.style.visibility = 'visible'
+      setTimeout(() => {
+        hack.classList.add('hidden')
+        hack.style.opacity    = '1'
+        hack.style.transition = ''
+        txt.style.transition  = ''
+        txt.style.opacity     = '1'
+        txt.style.animation   = ''
+        txt.textContent       = 'Hacking...'
+        wxHacking = false
+      }, 800)
+      if (!wxLoaded) loadWeather()
+    }, 11000)
+  }
+
+  function getCondition(killsPerHour, pyroRatio) {
+    if (killsPerHour > 10) return ['HEAVY ENGAGEMENT',  'Extreme hostility across all zones']
+    if (killsPerHour > 5)  return ['ACTIVE CONFLICT',   'Elevated combat activity detected']
+    if (killsPerHour > 2)  return ['SCATTERED CONTACTS','Sporadic engagements in sector']
+    if (pyroRatio > 0.5)   return ['LAWLESS FRONT',     'Pyro dominates current activity']
+    return ['QUIET SECTOR', 'Low combat activity. Stay alert.']
+  }
+
+  function spawnRadarDots(killArr) {
+    const wrap = document.querySelector('.radar-wrap')
+    if (!wrap) return
+    document.querySelectorAll('.radar-dot').forEach(d=>d.remove())
+    killArr.slice(0,12).forEach((k,i) => {
+      const dot = document.createElement('div')
+      dot.className = 'radar-dot'
+      const angle = Math.random() * Math.PI * 2
+      const dist  = 20 + Math.random() * 38
+      dot.style.left = (50 + Math.cos(angle)*dist) + '%'
+      dot.style.top  = (50 + Math.sin(angle)*dist) + '%'
+      dot.style.animationDelay    = (i * 0.28) + 's'
+      dot.style.animationDuration = (2.5 + Math.random()) + 's'
+      wrap.appendChild(dot)
+    })
+  }
+
+  const BASE = 'https://www.sckillboard.com'
+
+  // Track active beacon state
+  let beaconHandle   = null
+  let beaconInterval = null
+
+  async function loadWeather() {
+    const wxRight = document.getElementById('wx-right')
+    if (!wxRight) return
+    wxRight.innerHTML = '<div class="wx-loading">Fetching live data\u2026</div>'
+    document.getElementById('wx-condition').textContent    = '\u2014'
+    document.getElementById('wx-condition-lbl').textContent = 'Scanning\u2026'
+
+    try {
+      const data = await fetch(BASE + '/api/commarray').then(r=>r.json())
+
+      // Radar condition based on homicides/hr proxy
+      const killsPerHour = data.homicides / 24
+      const [condTitle, condDesc] = getCondition(killsPerHour, data.murder_pct / 100)
+      document.getElementById('wx-condition').textContent    = condTitle
+      document.getElementById('wx-condition-lbl').textContent = condDesc
+
+      // Spawn radar dots proportional to activity
+      spawnRadarDots(Array(Math.min(data.homicides, 12)).fill({}))
+      wxLoaded = true
+
+      // Beacon section
+      const beaconSection = renderBeaconSection(data.beacons)
+
+      wxRight.innerHTML = `
+        <div class="wx-section">
+          <div class="wx-sec-title">Sector Overview</div>
+          <div class="wx-stats-2">
+            <div class="wx-stat2"><div class="wx-stat2-val">${data.homicides}</div><div class="wx-stat2-lbl">Homicides</div></div>
+            <div class="wx-stat2"><div class="wx-stat2-val">${data.bounties}</div><div class="wx-stat2-lbl">Bounties Collected</div></div>
+          </div>
+        </div>
+        <div class="wx-section">
+          <div class="wx-sec-title">Bounties vs Murders</div>
+          <div class="wx-split-bar">
+            <div class="wx-split-a" style="width:${data.bounty_pct}%"></div>
+            <div class="wx-split-b" style="width:${data.murder_pct}%"></div>
+          </div>
+          <div class="wx-split-labels">
+            <span>Bounties &nbsp;${data.bounty_pct}%</span>
+            <span>${data.murder_pct}% &nbsp;Murders</span>
+          </div>
+        </div>
+        <div class="wx-section">
+          <div class="wx-sec-title">Organisation Activity</div>
+          ${data.orgs.length
+            ? data.orgs.map(org=>`<div class="wx-org-row">${org}</div>`).join('')
+            : '<div class="wx-loading" style="font-size:11px">No org activity in last 24h</div>'}
+        </div>
+        <div class="wx-section">
+          <div class="wx-sec-title">Highly Active</div>
+          ${data.pilots.map((p,i)=>`
+            <div class="wx-killer-row">
+              <div class="wx-killer-rank">${i+1}</div>
+              ${p.avatar?`<img class="wx-killer-av" src="${p.avatar}" onerror="this.style.display='none'">`:
+                          '<div class="wx-killer-av"></div>'}
+              <div class="wx-killer-info">
+                <div class="wx-killer-name">${p.handle}</div>
+              </div>
+              <div class="wx-killer-val">${p.kills}</div>
+            </div>`).join('')}
+        </div>
+        ${beaconSection}
+      `
+
+      // Wire up beacon button after render
+      document.getElementById('beacon-btn')?.addEventListener('click', toggleBeacon)
+
+    } catch(e) {
+      document.getElementById('wx-right').innerHTML =
+        `<div class="wx-loading" style="color:var(--red)">Failed to load data</div>`
+    }
+  }
+
+  function renderBeaconSection(beacons) {
+    const active = beacons || []
+    const activeList = active.length
+      ? active.map(b => `
+          <div class="wx-beacon-active">
+            <span class="wx-beacon-pulse"></span>
+            <span class="wx-beacon-name">${b.handle}</span>
+            <span class="wx-beacon-exp">expires ${new Date(b.expires_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+          </div>`).join('')
+      : '<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">No active beacons</div>'
+
+    const myBeaconActive = beaconHandle && active.find(b => b.handle === beaconHandle)
+    const btnLabel = myBeaconActive ? '\u25a0 Deactivate Beacon' : '\u25cf Activate Emergency Beacon'
+    const btnStyle = myBeaconActive
+      ? 'background:rgba(255,120,0,0.15);border-color:rgba(255,120,0,0.5);color:#ff7800'
+      : ''
+
+    return `
+      <div class="wx-section wx-beacon-section">
+        <div class="wx-sec-title">Emergency Rescue Beacon</div>
+        ${activeList}
+        <button id="beacon-btn" class="wx-beacon-btn" style="${btnStyle}">${btnLabel}</button>
+        <div id="beacon-status" style="font-size:10px;color:var(--tx3);margin-top:4px"></div>
+      </div>`
+  }
+
+  async function toggleBeacon() {
+    const btn = document.getElementById('beacon-btn')
+    const status = document.getElementById('beacon-status')
+    if (!btn) return
+
+    // Get last attacker handle from stored kills (last submitted handle)
+    const handle = window.__lastKillHandle || null
+    if (!handle) {
+      status.textContent = 'No kill history found \u2014 submit a kill first'
+      status.style.color = 'var(--red)'
+      return
+    }
+
+    if (beaconHandle) {
+      // Deactivate
+      try {
+        await fetch(`${BASE}/api/beacon/${encodeURIComponent(beaconHandle)}`, { method: 'DELETE' })
+        beaconHandle = null
+        clearInterval(beaconInterval)
+        beaconInterval = null
+        status.textContent = 'Beacon deactivated'
+        status.style.color = 'var(--tx3)'
+        wxLoaded = false; loadWeather()
+      } catch(e) {
+        status.textContent = 'Failed to deactivate'
+        status.style.color = 'var(--red)'
+      }
+    } else {
+      // Activate
+      try {
+        const res = await fetch(`${BASE}/api/beacon`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ handle })
+        }).then(r=>r.json())
+        if (res.error) {
+          status.textContent = res.error
+          status.style.color = 'var(--red)'
+          return
+        }
+        beaconHandle = handle
+        status.textContent = `Beacon active for 2h \u2014 visible to all pilots`
+        status.style.color = '#ff7800'
+        // Auto-refresh commarray every 30s while beacon active
+        beaconInterval = setInterval(()=>{ wxLoaded=false; loadWeather() }, 30000)
+        wxLoaded = false; loadWeather()
+      } catch(e) {
+        status.textContent = 'Failed to activate beacon'
+        status.style.color = 'var(--red)'
+      }
+    }
+  }
+
+  document.getElementById('wx-refresh-btn').addEventListener('click', ()=>{ wxLoaded=false; loadWeather() })
+  document.querySelector('[data-tab="weather"]').addEventListener('click', showCommArray)
+
+  /* ── LFG tab ── */
+  const BASE_LFG = 'https://www.sckillboard.com'
+  const SYS_COLORS = { Stanton: '#2ecc71', Pyro: '#e74c3c', Nyx: '#9b59b6' }
+
+  document.querySelector('[data-tab="lfg"]').addEventListener('click', loadClientLFG)
+
+  async function loadClientLFG() {
+    const board = document.getElementById('lfg-client-board')
+    if (!board) return
+    board.innerHTML = '<div style="color:var(--tx3);font-size:11px">Loading…</div>'
+    try {
+      const groups = await fetch(BASE_LFG + '/api/lfg').then(r=>r.json())
+      if (!groups.length) {
+        board.innerHTML = '<div style="color:var(--tx3);font-size:11px;text-align:center;padding:16px 0">No active groups</div>'
+        renderClientMyGroup(null)
+        return
+      }
+      board.innerHTML = groups.map(g => renderClientLFGCard(g)).join('')
+      renderClientMyGroup(groups.find(g => g.leader === (window.__lastKillHandle||'')))
+    } catch(e) {
+      board.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load</div>'
+    }
+  }
+
+  function renderClientLFGCard(g) {
+    const color    = SYS_COLORS[g.system] || '#4a8fc0'
+    const accepted = g.members.filter(m=>m.status==='accepted')
+    const pending  = g.members.filter(m=>m.status==='pending')
+    const me       = window.__lastKillHandle || ''
+    const isLeader = g.leader === me
+    const isMember = g.members.some(m=>m.handle===me)
+    const myStatus = g.members.find(m=>m.handle===me)?.status
+    const full     = accepted.length >= g.max_size
+    const exp      = new Date(g.expires_at)
+    const minsLeft = Math.max(0, Math.round((exp - Date.now()) / 60000))
+
+    const roster = accepted.map(m =>
+      `<span style="font-size:10px;background:var(--bg3);border-radius:3px;padding:2px 6px;color:var(--tx2)">${m.handle === g.leader ? '👑' : ''}${m.handle}</span>`
+    ).join(' ')
+
+    const pendingSection = isLeader && pending.length ? pending.map(m => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-top:1px solid var(--bg3);margin-top:6px">
+        <span style="font-size:11px;color:var(--tx2)">${m.handle}</span>
+        <div style="display:flex;gap:4px">
+          <button onclick="clientRespondLFG(${g.id},'${m.handle}','accept')" style="font-size:10px;padding:2px 8px;background:rgba(46,204,113,0.15);border:1px solid rgba(46,204,113,0.4);color:#2ecc71;border-radius:3px;cursor:pointer">✓</button>
+          <button onclick="clientRespondLFG(${g.id},'${m.handle}','decline')" style="font-size:10px;padding:2px 8px;background:rgba(192,80,64,0.12);border:1px solid rgba(192,80,64,0.3);color:#c05040;border-radius:3px;cursor:pointer">✗</button>
+        </div>
+      </div>`).join('') : ''
+
+    const actions = isLeader
+      ? `<div style="display:flex;gap:6px;margin-top:8px">
+           <button onclick="clientRenewLFG(${g.id})" style="flex:1;font-size:10px;padding:4px 0;background:var(--bg3);border:1px solid var(--bg4);color:var(--tx2);border-radius:3px;cursor:pointer">Renew</button>
+           <button onclick="clientDisbandLFG(${g.id})" style="flex:1;font-size:10px;padding:4px 0;background:rgba(192,80,64,0.1);border:1px solid rgba(192,80,64,0.3);color:#c05040;border-radius:3px;cursor:pointer">Disband</button>
+         </div>`
+      : (!isMember && !full)
+        ? `<button onclick="clientJoinLFG(${g.id})" style="width:100%;margin-top:8px;padding:5px 0;font-size:10px;background:rgba(74,143,192,0.12);border:1px solid rgba(74,143,192,0.35);color:#4a8fc0;border-radius:3px;cursor:pointer">Request to Join</button>`
+        : myStatus === 'pending'
+          ? `<div style="font-size:10px;color:#f39c12;margin-top:6px;text-align:center">⏳ Pending leader approval</div>`
+          : ''
+
+    return `<div style="background:var(--bg2);border:1px solid var(--bg3);border-left:3px solid ${color};border-radius:5px;padding:10px 12px">
+      <div style="font-size:12px;font-weight:700;color:var(--tx1)">${g.name}</div>
+      <div style="font-size:10px;color:var(--tx3);margin:2px 0 6px">
+        <span style="color:${color}">${g.system}</span> · ${g.leader} · ${accepted.length}/${g.max_size} · ${minsLeft}m left
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${roster}</div>
+      ${pendingSection}
+      ${actions}
+    </div>`
+  }
+
+  function renderClientMyGroup(myGroup) {
+    const wrap = document.getElementById('lfg-my-group-client')
+    const form = document.getElementById('lfg-client-form')
+    if (!wrap || !form) return
+    if (myGroup) {
+      wrap.style.display = 'block'
+      form.style.display = 'none'
+      wrap.innerHTML = `<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">YOUR GROUP IS LIVE</div>
+        <div style="font-size:12px;font-weight:700;color:var(--tx1)">${myGroup.name} · ${myGroup.system}</div>`
+    } else {
+      wrap.style.display = 'none'
+      form.style.display = 'block'
+    }
+  }
+
+  document.getElementById('lfg-client-post-btn').addEventListener('click', async () => {
+    const name   = document.getElementById('lfg-client-name').value.trim()
+    const system = document.getElementById('lfg-client-system').value
+    const status = document.getElementById('lfg-client-status')
+    const handle = window.__lastKillHandle || ''
+    if (!handle) { status.textContent = 'No kill history — submit a kill first'; status.style.color='var(--red)'; return }
+    if (!name)   { status.textContent = 'Enter a group name'; status.style.color='var(--red)'; return }
+    status.textContent = 'Posting…'; status.style.color = 'var(--tx3)'
+    try {
+      const r = await fetch(BASE_LFG + '/api/lfg', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ leader: handle, name, system })
+      }).then(r=>r.json())
+      if (r.error) { status.textContent = r.error; status.style.color='var(--red)'; return }
+      status.textContent = 'Posted!'
+      document.getElementById('lfg-client-name').value = ''
+      loadClientLFG()
+    } catch(e) { status.textContent = 'Failed'; status.style.color='var(--red)' }
+  })
+
+  document.getElementById('lfg-client-refresh').addEventListener('click', loadClientLFG)
+
+  async function clientJoinLFG(groupId) {
+    const handle = window.__lastKillHandle || ''
+    if (!handle) { alert('No kill history — submit a kill first'); return }
+    await fetch(BASE_LFG + `/api/lfg/${groupId}/join`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ handle })
+    })
+    loadClientLFG()
+  }
+
+  async function clientRespondLFG(groupId, handle, action) {
+    const leader = window.__lastKillHandle || ''
+    await fetch(BASE_LFG + `/api/lfg/${groupId}/respond`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ leader, handle, action })
+    })
+    loadClientLFG()
+  }
+
+  async function clientRenewLFG(groupId) {
+    const leader = window.__lastKillHandle || ''
+    await fetch(BASE_LFG + `/api/lfg/${groupId}/renew`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ leader })
+    })
+    loadClientLFG()
+  }
+
+  async function clientDisbandLFG(groupId) {
+    if (!confirm('Disband this group?')) return
+    const leader = window.__lastKillHandle || ''
+    await fetch(BASE_LFG + `/api/lfg/${groupId}`, {
+      method:'DELETE', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ leader })
+    })
+    loadClientLFG()
+  }
+
+
+  /* ── Font picker ── */
+  const volSlider = document.getElementById('vol-slider')
+  const volMute   = document.getElementById('vol-mute')
+  let muted = false
+
+  // Restore saved audio preferences
+  ;(async () => {
+    try {
+      const acfg = await window.vkb.getConfig()
+      const vol  = (typeof acfg.volume === 'number') ? acfg.volume : 0.067
+      muted = !!acfg.muted
+      volSlider.value = Math.round(vol * 100)
+      window.vkb.setVolume(vol)
+      window.vkb.setMute(muted)
+      volMute.textContent = muted ? '🔇' : (vol === 0 ? '🔇' : vol < 0.5 ? '🔉' : '🔊')
+    } catch(e) {}
+  })()
+
+  volSlider.addEventListener('input', () => {
+    const v = volSlider.value / 100
+    window.vkb.setVolume(v)
+    volMute.textContent = v === 0 ? '🔇' : v < 0.5 ? '🔉' : '🔊'
+  })
+
+  volMute.addEventListener('click', () => {
+    muted = !muted
+    window.vkb.setMute(muted)
+    volMute.textContent = muted ? '🔇' : volSlider.value < 50 ? '🔉' : '🔊'
+  })
+
+})()
+</script>
+  <!-- Font picker bar -->
+
+</body>
+</html>

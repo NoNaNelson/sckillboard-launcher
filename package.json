@@ -1,0 +1,31 @@
+{
+  "name": "sckillboard",
+  "version": "1.4.1",
+  "description": "scKillboard - Star Citizen Kill Tracker",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node -e \"require('fs').writeFileSync('node_modules/electron/path.txt', 'electron.exe')\" && electron .",
+    "build": "electron-builder build --win --x64",
+    "dev": "electron . --dev"
+  },
+  "build": {
+    "appId": "com.sckillboard.app",
+    "productName": "scKillboard",
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

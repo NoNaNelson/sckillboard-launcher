@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>scKillboard — Disclaimer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:900px;height:420px;overflow:hidden;background:#080809;font-family:'Segoe UI',sans-serif;color:#cfd2d6}
+.wrap{display:flex;flex-direction:column;height:420px;padding:18px 22px}
+.head{-webkit-app-region:drag;flex-shrink:0}
+.title{font-size:16px;font-weight:700;color:#e8e8e8;letter-spacing:.5px}
+.title span{color:#b03020}
+.sub{font-size:10px;color:#6a6f75;letter-spacing:2px;text-transform:uppercase;margin-top:2px}
+.body{
+  flex:1;overflow-y:auto;margin:12px 0;padding:12px 16px;
+  background:#0d0e10;border:1px solid #1c1e22;border-radius:6px;
+  font-size:11.5px;line-height:1.65;color:#b7bbc0;
+  -webkit-app-region:no-drag;
+}
+.body::-webkit-scrollbar{width:8px}
+.body::-webkit-scrollbar-thumb{background:#26292e;border-radius:4px}
+.body h2{font-size:11px;color:#e8e8e8;letter-spacing:.4px;margin:14px 0 4px;text-transform:uppercase}
+.body h2:first-child{margin-top:0}
+.body b{color:#d6d9dd}
+.body a{color:#5a9fd4}
+.row{flex-shrink:0;display:flex;gap:10px;align-items:center;justify-content:flex-end}
+.hint{margin-right:auto;font-size:10px;color:#6a6f75}
+button{
+  border:none;border-radius:3px;padding:9px 20px;font-size:11px;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;font-family:'Segoe UI',sans-serif;
+  -webkit-app-region:no-drag;transition:filter .12s;
+}
+.decline{background:#1c1e22;color:#9a9ea3}
+.decline:hover{filter:brightness(1.3)}
+.agree{background:linear-gradient(180deg,#888,#555);color:#f0f0f0}
+.agree:hover{filter:brightness(1.15)}
+.agree:disabled{opacity:.4;cursor:not-allowed;filter:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="title">sc<span>Killboard</span></div>
+    <div class="sub">What this program does</div>
+  </div>
+
+  <div class="body" id="eula-body">
+    <p>Welcome to scKillboard. Here's exactly what this program does, in plain terms — please read it before continuing.</p>
+
+    <h2>Why it exists</h2>
+    <p>scKillboard is built to <b>promote PvP in Star Citizen</b> — to help organizations recruit active players, help pilots find each other through the <b>LFG</b> board, and bring the community together around the fight. It's a tool for the players, by the players.</p>
+
+    <h2>What it reads</h2>
+    <p>scKillboard reads only <b>two files</b> on your computer:</p>
+    <p>&bull; Your Star Citizen <b>Game.log</b> file<br>&bull; Its own settings file in your <b>AppData</b> folder</p>
+    <p>That's it — nothing else on your system is read or touched.</p>
+
+    <h2>What it records from your Game.log</h2>
+    <p>From the log it detects and records your combat activity: <b>kills</b> and <b>deaths</b>, the <b>vehicle you're inside</b> at the time, the <b>weapon you're carrying</b>, <b>bounty missions completed</b>, and your <b>location</b> in the 'verse. This is what builds your killboard, stats, and leaderboard rank.</p>
+
+    <h2>How it uses RSI data</h2>
+    <p>For each kill and death, scKillboard looks up the players involved on their <b>public RSI profile pages</b> — the same pages anyone can view in a browser — to show avatars, organizations, and profile details next to the fight. It reads only public information and never uses your RSI login or password.</p>
+
+    <h2>Supporting the game</h2>
+    <p>scKillboard is an unofficial, fan-made tool made to <b>support Star Citizen</b> and its PvP community. It is not affiliated with Cloud Imperium Games. We fully respect CIG's ownership of the game and will <b>comply with any instruction or request from Cloud Imperium Games</b> regarding this tool.</p>
+
+    <p style="margin-top:14px;color:#8a8e93">By clicking I Agree you confirm you understand what the program does. If you don't agree, click Decline and the app will close.</p>
+  </div>
+
+  <div class="row">
+    <div class="hint" id="hint">Scroll to the bottom to continue…</div>
+    <button class="decline" id="decline">Decline &amp; Exit</button>
+    <button class="agree" id="agree" disabled>I Agree</button>
+  </div>
+</div>
+
+<script>
+  const body   = document.getElementById('eula-body');
+  const agree  = document.getElementById('agree');
+  const hint   = document.getElementById('hint');
+
+  function enableAgree(){
+    agree.disabled = false;
+    hint.textContent = '';
+  }
+  function checkScroll(){
+    if (body.scrollHeight - body.scrollTop - body.clientHeight < 10) enableAgree();
+  }
+  body.addEventListener('scroll', checkScroll);
+  window.addEventListener('load', () => {
+    // If the text fits without scrolling, enable immediately.
+    if (body.scrollHeight <= body.clientHeight + 10) enableAgree();
+  });
+
+  document.getElementById('agree').addEventListener('click', () => {
+    if (agree.disabled) return;
+    if (window.vkb && window.vkb.acceptEula) window.vkb.acceptEula();
+  });
+  document.getElementById('decline').addEventListener('click', () => {
+    if (window.vkb && window.vkb.declineEula) window.vkb.declineEula();
+  });
+</script>
+</body>
+</html>
