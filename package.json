@@ -1,12 +1,13 @@
 {
   "name": "sckillboard",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "scKillboard - Star Citizen Kill Tracker",
   "main": "src/main.js",
   "scripts": {
     "start": "node -e \"require('fs').writeFileSync('node_modules/electron/path.txt', 'electron.exe')\" && electron .",
     "build": "electron-builder build --win --x64",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "test": "node test/security.test.js"
   },
   "build": {
     "appId": "com.sckillboard.app",
