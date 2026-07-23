@@ -71,6 +71,9 @@ body{width:900px;height:377px;overflow:hidden;font-family:'Segoe UI',sans-serif;
 .splash-topright{position:absolute;top:16px;right:20px;z-index:4;font-size:10px;color:rgba(255,255,255,0.1);letter-spacing:2px;text-transform:uppercase;border:1px solid rgba(255,255,255,0.07);padding:3px 9px;border-radius:2px}
 .sc-warning{display:none;margin-bottom:8px;font-size:9px;color:#ff6b6b;letter-spacing:1px;text-transform:uppercase;padding:6px 10px;background:rgba(255,60,60,0.1);border:1px solid rgba(255,60,60,0.25);border-radius:2px;text-align:center}
 .sc-warning.visible{display:block}
+.reg-row{margin-top:10px;font-size:10px;color:rgba(255,255,255,0.4);text-align:center;letter-spacing:0.3px}
+.reg-row a{color:#9db8d4;cursor:pointer;text-decoration:none}
+.reg-row a:hover{color:#c3d6ea;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -105,10 +108,11 @@ body{width:900px;height:377px;overflow:hidden;font-family:'Segoe UI',sans-serif;
     <div class="error-msg" id="error"></div>
     <div class="sc-warning" id="sc-warning">⚠ Close Star Citizen before launching</div>
     <button class="launch-btn" id="launch-btn">SIGN IN &amp; LAUNCH</button>
+    <div class="reg-row">No account? <a id="register-link">Create one on the website &rarr;</a></div>
   </div>
 
   <div class="splash-topright">scKillboard</div>
-  <div class="splash-footer">v1.4.1 · Star Citizen</div>
+  <div class="splash-footer">v1.4.2 · Star Citizen</div>
 </div>
 
 <!-- Font picker bar -->
@@ -214,6 +218,14 @@ async function doLaunch() {
 launchBtn.addEventListener('click', doLaunch)
 usernameEl.addEventListener('keydown', e => { if(e.key==='Enter') passwordEl.focus() })
 passwordEl.addEventListener('keydown', e => { if(e.key==='Enter') doLaunch() })
+
+// ── Register — opens the website so people without an account can sign up ──
+const registerLink = document.getElementById('register-link')
+if (registerLink) {
+  registerLink.addEventListener('click', () => {
+    if (window.vkb && window.vkb.openExternal) window.vkb.openExternal('https://www.sckillboard.com')
+  })
+}
 </script>
 </body>
 </html>

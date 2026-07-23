@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld('vkb', {
   on: (channel, fn) => {
     const allowed = [
       'log', 'status', 'kill-count', 'log-path-selected',
-      'sc-status', 'last-kill-handle',
+      'sc-status', 'last-kill-handle', 'tracking-state',
     ]
     if (allowed.includes(channel)) {
       ipcRenderer.on(channel, (e, ...args) => fn(...args))

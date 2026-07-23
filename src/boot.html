@@ -33,7 +33,7 @@ html,body{width:900px;height:377px;overflow:hidden;background:#000}
 <div class="boot">
   <div class="boot-line" id="line"></div>
 </div>
-<audio id="bg-audio" loop autoplay style="display:none">
+<audio id="bg-audio" loop style="display:none">
   <source src="../assets/bg_music.m4a" type="audio/mp4">
 </audio>
 <script>
@@ -52,13 +52,12 @@ const LINES = [
 const el = document.getElementById('line')
 el.textContent = LINES[Math.floor(Math.random() * LINES.length)]
 
-// Audio
+// Background music is owned by the persistent audio window in the main process,
+// which now guarantees the intro plays for the first few seconds even if the
+// launcher is muted. Playing a second copy here caused an echo, so the boot
+// screen no longer starts its own track.
 const audio = document.getElementById('bg-audio')
-audio.volume = 0.2
-audio.play().catch(() => {})
-
-// Volume/mute control from main window (passed via bootComplete channel)
-window.__audio = audio
+try { audio.pause(); audio.muted = true } catch(e) {}
 
 // Timeline over 6 seconds:
 // 0.0s  — start fade in

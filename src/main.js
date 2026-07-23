@@ -1,9 +1,9 @@
 /**
- * scKillboard - Main Process v1.4.1
+ * scKillboard - Main Process v1.4.2
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron')
 const path   = require('path')
 const fs     = require('fs')
 const https  = require('https')
@@ -60,10 +60,33 @@ const QUOTES = [
 ]
 
 // ── Config helpers ──────────────────────────────────────────────────────────────
+const SECRET_FIELDS = ['session_token', 'personal_webhook'];
+
+function _protectSecrets(cfg) {
+  for (const k of SECRET_FIELDS) {
+    if (cfg[k] != null && !String(cfg[k]).startsWith('enc:')) {
+      cfg[k] = 'enc:' + safeStorage.encryptString(String(cfg[k])).toString('base64');
+    }
+  }
+  return cfg;
+}
+
+function _unprotectSecrets(cfg) {
+  for (const k of SECRET_FIELDS) {
+    if (cfg[k] != null && String(cfg[k]).startsWith('enc:')) {
+      try { cfg[k] = safeStorage.decryptString(Buffer.from(String(cfg[k]).slice(4), 'base64')); } catch (e) {}
+    }
+  }
+  return cfg;
+}
+
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_FILE))
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+    if (fs.existsSync(CONFIG_FILE)) {
+      const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      if (safeStorage.isEncryptionAvailable()) _unprotectSecrets(cfg);
+      return cfg;
+    }
   } catch(e) {}
   return { log_path: DEFAULT_LOG, attacker_handle: '', personal_webhook: '', personal_enabled: false, api_secret: '', volume: 0.067, muted: false }
 }
@@ -71,7 +94,8 @@ function loadConfig() {
 function saveConfig(cfg) {
   try {
     fs.mkdirSync(CONFIG_DIR, { recursive: true })
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2))
+    const out = safeStorage.isEncryptionAvailable() ? _protectSecrets(JSON.parse(JSON.stringify(cfg))) : cfg;
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(out, null, 2))
   } catch(e) {}
 }
 
@@ -139,7 +163,11 @@ function httpGet(urlStr) {
     const req = mod.get(opts, res => {
       // Follow redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return httpGet(res.headers.location).then(resolve).catch(reject)
+        const loc = new URL(res.headers.location, urlStr).href
+        if (/^https?:\/\/(www\.)?robertsspaceindustries\.com\//i.test(loc)) {
+          return httpGet(loc).then(resolve).catch(reject)
+        }
+        return resolve({ status: res.statusCode, body: '' })
       }
       let data = ''
       res.on('data', c => data += c)
@@ -156,11 +184,11 @@ async function fetchRsiProfile(handle) {
     handle, display: handle,
     avatar_url: '', org_logo: '', org_name: '', org_sid: '', org_rank: '',
     enlisted: '', location: '',
-    profile_url: `https://robertsspaceindustries.com/en/citizens/${handle}`
+    profile_url: `https://robertsspaceindustries.com/en/citizens/${encodeURIComponent(handle)}`
   }
   for (const url of [
-    `https://robertsspaceindustries.com/en/citizens/${handle}`,
-    `https://robertsspaceindustries.com/citizens/${handle}`,
+    `https://robertsspaceindustries.com/en/citizens/${encodeURIComponent(handle)}`,
+    `https://robertsspaceindustries.com/citizens/${encodeURIComponent(handle)}`,
   ]) {
     try {
       const res = await httpGet(url)
@@ -216,7 +244,7 @@ const EXCLUDED_ORG_SIDS = new Set(['AVOCADO', 'TEST', 'COALPVP'])
 async function fetchRsiAffiliations(handle) {
   const affiliations = []
   try {
-    const res = await httpGet(`https://robertsspaceindustries.com/en/citizens/${handle}/organizations`)
+    const res = await httpGet(`https://robertsspaceindustries.com/en/citizens/${encodeURIComponent(handle)}/organizations`)
     if (res.status !== 200 || res.body.length < 500) return affiliations
     const html = res.body
 
@@ -401,8 +429,8 @@ function startWatcher(logPath, win) {
   stopWatcher()
   if (!fs.existsSync(logPath)) {
     win.webContents.send('log', 'error', `Game.log not found: ${logPath}`)
-    win.webContents.send('status', 'error', 'Game.log not found — launch Star Citizen first')
-    return
+    win.webContents.send('status', 'error', 'Game.log not found — check the path in Settings')
+    return false
   }
   logPosition  = fs.statSync(logPath).size
   pendingCrime = null
@@ -646,6 +674,7 @@ function startWatcher(logPath, win) {
         }
     } catch(e) {}
   }, 500)
+  return true
 }
 
 function stopWatcher() {
@@ -799,17 +828,25 @@ function createAudio() {
   audioWin = new BrowserWindow({
     show: false, width: 1, height: 1,
     skipTaskbar: true,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: { nodeIntegration: false, contextIsolation: true }
   })
   audioWin.loadFile(path.join(__dirname, 'audio.html'))
   audioWin.webContents.once('did-finish-load', () => {
     const musicPath = path.join(__dirname, '..', 'assets', 'bg_music.m4a')
       .replace(/\\/g, '/')
+    // Honour the saved audio preference from the very first frame. If the user
+    // last muted the launcher (or set the volume to 0), the opening intro stays
+    // silent too — we remember that they don't want to hear it. A fresh install
+    // has no preference yet, so it defaults to the quiet background track.
+    const cfg   = loadConfig()
+    const vol   = (typeof cfg.volume === 'number') ? cfg.volume : 0.067
+    const muted = !!cfg.muted
     audioWin.webContents.executeJavaScript(`
       const a = document.getElementById('bg');
       a.src = 'file:///${musicPath}';
-      a.volume = 0.067;
       a.loop = true;
+      a.muted = ${muted ? 'true' : 'false'};
+      a.volume = ${vol};
       a.play().catch(e => console.log('play error:', e));
     `)
   })
@@ -825,11 +862,43 @@ function createSplash() {
     title: 'scKillboard', backgroundColor: '#080809',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   })
-  const _cfg = loadConfig()
-  const _accepted = _cfg.eula_accepted && _cfg.eula_version === EULA_VERSION
-  splashWin.loadFile(path.join(__dirname, _accepted ? 'boot.html' : 'eula.html'))
   splashWin.setMenuBarVisibility(false)
   splashWin.on('closed', () => { splashWin = null; if (!mainWin) app.quit() })
+
+  const _cfg = loadConfig()
+  const _accepted = _cfg.eula_accepted && _cfg.eula_version === EULA_VERSION
+  if (_accepted && _cfg.skip_intro) {
+    // User opted out of the boot intro — go straight to auto-login / sign-in.
+    proceedAfterIntro()
+  } else {
+    splashWin.loadFile(path.join(__dirname, _accepted ? 'boot.html' : 'eula.html'))
+  }
+}
+
+// Shared by the boot screen (once its animation finishes) and the skip-intro
+// path: if a valid session exists, jump straight into the main window; otherwise
+// show the sign-in screen and start polling for Star Citizen.
+async function proceedAfterIntro() {
+  if (!splashWin) return
+  const cfg = loadConfig()
+  if (cfg.session_token) {
+    try {
+      const me = await apiRequest('GET', '/api/auth/me')
+      if (me && me.ok !== false && (me.sc_handle || me.username)) {
+        cfg.attacker_handle = me.sc_handle || cfg.attacker_handle
+        saveConfig(cfg)
+        createMain()
+        setTimeout(() => { if (splashWin) { splashWin.close(); splashWin = null } }, 300)
+        return
+      }
+    } catch (e) {
+      // Network hiccup or invalid/expired token — fall through to manual login
+    }
+    delete cfg.session_token
+    saveConfig(cfg)
+  }
+  splashWin.loadFile(path.join(__dirname, 'splash.html'))
+  splashWin.webContents.once('did-finish-load', () => startScPoll(splashWin))
 }
 
 function createMain() {
@@ -840,7 +909,11 @@ function createMain() {
   })
   mainWin.loadFile(path.join(__dirname, 'index.html'))
   mainWin.setMenuBarVisibility(false)
-  mainWin.on('closed', () => { stopWatcher(); mainWin = null; app.quit() })
+  // Keep watching whether Star Citizen is running so the renderer can hard-block
+  // "Start Tracking" until SC is closed — tracking must be live BEFORE the game
+  // opens, or early kills arrive missing ship/weapon details.
+  mainWin.webContents.once('did-finish-load', () => startScPoll(mainWin))
+  mainWin.on('closed', () => { stopScPoll(); stopWatcher(); mainWin = null; app.quit() })
 }
 
 ipcMain.handle('get-config',   () => loadConfig())
@@ -940,15 +1013,24 @@ ipcMain.on('launch', (e, handle) => {
 ipcMain.on('start-tracking', async (e, logPath) => {
   if (!mainWin) return
   const running = await isScRunning()
-  if (!running) {
-    mainWin.webContents.send('log', 'error', '✗ Star Citizen is not running — launch SC first')
-    mainWin.webContents.send('status', 'error', 'Star Citizen not detected')
+  if (running) {
+    // Hard block: SC is already open, so it's mid-session and we'd have missed the
+    // context lines (ship entered, weapon drawn) that complete a kill. Refuse until
+    // it's closed so tracking can be live before the next session starts.
+    mainWin.webContents.send('log', 'error', '✗ Star Citizen is already running. Close it, press Start Tracking, THEN reopen Star Citizen — this guarantees every kill has full details.')
+    mainWin.webContents.send('status', 'error', 'Close Star Citizen first')
+    mainWin.webContents.send('tracking-state', false)
     return
   }
-  startWatcher(logPath, mainWin)
+  const started = startWatcher(logPath, mainWin)
+  mainWin.webContents.send('tracking-state', !!started)
+  if (started) {
+    mainWin.webContents.send('log', 'ok', '✓ Tracking active — you can now launch Star Citizen.')
+  }
 })
 ipcMain.on('stop-tracking', () => {
   stopWatcher()
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('tracking-state', false)
 })
 
 // ── Audio IPC ─────────────────────────────────────────────────────────────────
@@ -975,32 +1057,7 @@ ipcMain.on('clear-feed', () => {
   if (mainWin) mainWin.webContents.send('kill-count', 0)
 })
 
-ipcMain.on('boot-complete', async () => {
-  if (!splashWin) return
-
-  // ── Remember sign-in ──────────────────────────────────────────────────
-  const cfg = loadConfig()
-  if (cfg.session_token) {
-    try {
-      const me = await apiRequest('GET', '/api/auth/me')
-      if (me && me.ok !== false && (me.sc_handle || me.username)) {
-        cfg.attacker_handle = me.sc_handle || cfg.attacker_handle
-        saveConfig(cfg)
-        splashWin.webContents.send('log', 'session', `◈ Signed in as ${me.username || me.sc_handle} — skipping login`)
-        createMain()
-        setTimeout(() => { if (splashWin) { splashWin.close(); splashWin = null } }, 300)
-        return
-      }
-    } catch (e) {
-      // Network hiccup or invalid/expired token — fall through to manual login
-    }
-    delete cfg.session_token
-    saveConfig(cfg)
-  }
-
-  splashWin.loadFile(path.join(__dirname, 'splash.html'))
-  splashWin.webContents.once('did-finish-load', () => startScPoll(splashWin))
-})
+ipcMain.on('boot-complete', () => { proceedAfterIntro() })
 
 ipcMain.on('browse-log', async () => {
   if (!mainWin) return
@@ -1078,7 +1135,7 @@ async function forceUpdate(win, info) {
       cancelId: 1,
     })
     if (choice.response === 0) {
-      shell.openExternal(info.download_url || DEFAULT_RELEASES_URL)
+      shell.openExternal(/^https:\/\//i.test(info.download_url || '') ? info.download_url : DEFAULT_RELEASES_URL)
     }
   } catch (e) {
     // If the dialog itself fails, still quit — we must not let an outdated client run.
@@ -1108,7 +1165,7 @@ async function checkForUpdates(win) {
         defaultId: 0,
         cancelId: 1,
       })
-      if (choice.response === 0 && res.download_url) {
+      if (choice.response === 0 && res.download_url && /^https:\/\//i.test(res.download_url)) {
         shell.openExternal(res.download_url)
       }
     }
@@ -1116,6 +1173,16 @@ async function checkForUpdates(win) {
     // Update server unreachable — fail silently, never block app startup
   }
 }
+
+app.on('web-contents-created', (e, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  contents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) event.preventDefault()
+  })
+})
 
 app.whenReady().then(() => {
   createSplash()
