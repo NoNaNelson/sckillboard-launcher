@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.3
+ * scKillboard - Main Process v1.4.4
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -538,10 +538,15 @@ function startWatcher(logPath, win) {
           // ── Weapon in hand tracking ───────────────────────────────────────
           const weaponM = WEAPON_HAND_RE.exec(line)
           if (weaponM && weaponM[1] === (detectedHandle || '')) {
-            weaponInHand = weaponM[2].trim()
+            const w = weaponM[2].trim()
+            if (w !== weaponInHand) {
+              weaponInHand = w
+              win.webContents.send('log', 'info', `🔫 Weapon ready: ${fmtWeapon(weaponInHand) || weaponInHand}`)
+            }
           }
           const holsterM = WEAPON_HOLSTER_RE.exec(line)
           if (holsterM && holsterM[1] === (detectedHandle || '') && holsterM[2].trim() === weaponInHand) {
+            win.webContents.send('log', 'info', `🔫 Holstered ${fmtWeapon(weaponInHand) || weaponInHand}`)
             weaponInHand = null
           }
 
@@ -1057,7 +1062,12 @@ function createMain() {
   // Keep watching whether Star Citizen is running so the renderer can hard-block
   // "Start Tracking" until SC is closed — tracking must be live BEFORE the game
   // opens, or early kills arrive missing ship/weapon details.
-  mainWin.webContents.once('did-finish-load', () => startScPoll(mainWin))
+  mainWin.webContents.once('did-finish-load', () => {
+    startScPoll(mainWin)
+    // Voluntary auto-check once the main UI is up (the launch-time check runs
+    // before this window exists, so its events wouldn't reach the banner).
+    if (autoUpdater && app.isPackaged) { try { autoUpdater.checkForUpdates() } catch (e) {} }
+  })
   mainWin.on('closed', () => { stopScPoll(); stopWatcher(); mainWin = null; app.quit() })
 }
 
@@ -1259,9 +1269,25 @@ const DEFAULT_RELEASES_URL = 'https://github.com/ver9jl-cell/sckillboard-launche
 let _updateBlocking = false
 
 function handleUpdateRequired(info) {
-  if (_updateBlocking) return   // only ever prompt once
+  if (_updateBlocking) return   // only ever act once
   _updateBlocking = true
-  forceUpdate(mainWin || splashWin || null, info || {})
+  _forcedUpdate   = true
+  _lastUpdateInfo = info || {}
+  // Show the blocking "updating" overlay and pull + install the new build in-app.
+  _sendUpdate({ state: 'forced', version: (info && info.version) || '' })
+  if (autoUpdater && app.isPackaged) {
+    try {
+      autoUpdater.checkForUpdates()
+      _forcedTimer = setTimeout(() => _forcedBrowserFallback(), 30000)  // safety net
+    } catch (e) { _forcedBrowserFallback() }
+  } else {
+    _forcedBrowserFallback()   // dev run or missing dep → old browser+quit flow
+  }
+}
+
+function _forcedBrowserFallback() {
+  if (_forcedTimer) { clearTimeout(_forcedTimer); _forcedTimer = null }
+  forceUpdate(mainWin || splashWin || null, _lastUpdateInfo || {})
 }
 
 async function forceUpdate(win, info) {
@@ -1280,7 +1306,9 @@ async function forceUpdate(win, info) {
       cancelId: 1,
     })
     if (choice.response === 0) {
-      shell.openExternal(/^https:\/\//i.test(info.download_url || '') ? info.download_url : DEFAULT_RELEASES_URL)
+      // Always our own GitHub releases page — never a server-supplied URL, so a
+      // compromised update server can't redirect users to a malicious download.
+      shell.openExternal(DEFAULT_RELEASES_URL)
     }
   } catch (e) {
     // If the dialog itself fails, still quit — we must not let an outdated client run.
@@ -1298,26 +1326,70 @@ async function checkForUpdates(win) {
       handleUpdateRequired(res)
       return
     }
-    // Soft: a newer version exists but we're still supported → optional prompt.
-    if (compareVersions(res.version, current) > 0) {
-      const choice = await dialog.showMessageBox(win || undefined, {
-        type: 'info',
-        noLink: true,
-        title: 'Update available',
-        message: `scKillboard ${res.version} is available (you have ${current}).`,
-        detail: res.changelog || 'A new version of the launcher is available.',
-        buttons: ['Download Update', 'Later'],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      if (choice.response === 0 && res.download_url && /^https:\/\//i.test(res.download_url)) {
-        shell.openExternal(res.download_url)
-      }
+    // Soft: a newer build exists — let electron-updater fetch it and show the
+    // in-app banner (renderer reacts to the 'update-status' events).
+    if (compareVersions(res.version, current) > 0 && autoUpdater && app.isPackaged) {
+      try { autoUpdater.checkForUpdates() } catch (e) {}
     }
   } catch (e) {
     // Update server unreachable — fail silently, never block app startup
   }
 }
+
+// ── In-app auto-update (electron-updater) ────────────────────────────────────
+// Pulls new versions straight from the GitHub Releases and installs on restart —
+// no browser, no manual installer. Only runs in a packaged build; a dev run or a
+// missing dependency falls back to the old open-the-download-page flow.
+let autoUpdater = null
+try { autoUpdater = require('electron-updater').autoUpdater } catch (e) { autoUpdater = null }
+
+let _forcedUpdate   = false   // true when the server forced the update (HTTP 426)
+let _lastUpdateInfo = {}
+let _forcedTimer    = null
+
+function _sendUpdate(payload) {
+  for (const w of [mainWin, splashWin]) {
+    if (w && !w.isDestroyed()) { try { w.webContents.send('update-status', payload) } catch (e) {} }
+  }
+}
+
+if (autoUpdater) {
+  autoUpdater.autoDownload = false          // prompt before downloading (voluntary updates)
+  autoUpdater.autoInstallOnAppQuit = true   // if downloaded, install on next quit as a fallback
+  autoUpdater.on('checking-for-update', () => _sendUpdate({ state: 'checking' }))
+  autoUpdater.on('update-available', (info) => {
+    _sendUpdate({ state: 'available', version: info && info.version, forced: _forcedUpdate })
+    if (_forcedUpdate) { try { autoUpdater.downloadUpdate() } catch (e) { _forcedBrowserFallback() } }
+  })
+  autoUpdater.on('update-not-available', () => {
+    _sendUpdate({ state: 'none' })
+    if (_forcedUpdate) _forcedBrowserFallback()
+  })
+  autoUpdater.on('download-progress', (p) => {
+    if (_forcedTimer) { clearTimeout(_forcedTimer); _forcedTimer = null }
+    _sendUpdate({ state: 'downloading', percent: Math.round((p && p.percent) || 0), forced: _forcedUpdate })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    _sendUpdate({ state: 'downloaded', version: info && info.version, forced: _forcedUpdate })
+    if (_forcedUpdate) setImmediate(() => { try { autoUpdater.quitAndInstall() } catch (e) {} })
+  })
+  autoUpdater.on('error', (err) => {
+    _sendUpdate({ state: 'error', message: String((err && err.message) || err || 'update error') })
+    if (_forcedUpdate) _forcedBrowserFallback()
+  })
+}
+
+ipcMain.on('update:check', () => {
+  if (!autoUpdater || !app.isPackaged) { _sendUpdate({ state: 'none', dev: true }); return }
+  try { autoUpdater.checkForUpdates() } catch (e) { _sendUpdate({ state: 'error', message: String(e.message || e) }) }
+})
+ipcMain.on('update:download', () => {
+  if (!autoUpdater) return
+  try { autoUpdater.downloadUpdate() } catch (e) { _sendUpdate({ state: 'error', message: String(e.message || e) }) }
+})
+ipcMain.on('update:install', () => {
+  if (autoUpdater) setImmediate(() => { try { autoUpdater.quitAndInstall() } catch (e) {} })
+})
 
 app.on('web-contents-created', (e, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
