@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.5
+ * scKillboard - Main Process v1.4.6
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -1371,7 +1371,7 @@ if (autoUpdater) {
   })
   autoUpdater.on('update-downloaded', (info) => {
     _sendUpdate({ state: 'downloaded', version: info && info.version, forced: _forcedUpdate })
-    if (_forcedUpdate) setImmediate(() => { try { autoUpdater.quitAndInstall() } catch (e) {} })
+    if (_forcedUpdate) setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
   })
   autoUpdater.on('error', (err) => {
     _sendUpdate({ state: 'error', message: String((err && err.message) || err || 'update error') })
@@ -1388,7 +1388,7 @@ ipcMain.on('update:download', () => {
   try { autoUpdater.downloadUpdate() } catch (e) { _sendUpdate({ state: 'error', message: String(e.message || e) }) }
 })
 ipcMain.on('update:install', () => {
-  if (autoUpdater) setImmediate(() => { try { autoUpdater.quitAndInstall() } catch (e) {} })
+  if (autoUpdater) setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
 })
 
 app.on('web-contents-created', (e, contents) => {
