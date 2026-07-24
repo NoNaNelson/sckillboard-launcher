@@ -21,13 +21,23 @@ Your identity on scKillboard is **RSI-verified**: you prove you own a handle via
 
 ## Building from source
 
-Requires [Node.js](https://nodejs.org/).
+The launcher is a standard [Electron](https://www.electronjs.org/) app. All you need is [Node.js](https://nodejs.org/) — no other toolchain.
 
 ```bash
 npm install          # install dependencies
-npm run dev          # run locally
-npm run build        # build the Windows installer (output in dist/)
+npm run dev          # run locally in development
+npm run build        # build the Windows installer
 ```
+
+The `build` script runs `electron-builder build --win --x64` (defined in `package.json`) and produces the installer at:
+
+```
+dist/scKillboard Setup <version>.exe
+```
+
+The installers on the [Releases](https://github.com/ver9jl-cell/sckillboard-launcher/releases/latest) page are produced from this exact command, so anyone can reproduce a build locally. There is no separate compilation step — Electron runs the JavaScript in `src/` directly.
+
+> **Note:** the installer is not code-signed, so Windows SmartScreen may warn on first run — choose *More info → Run anyway*. Signing is a paid certificate we don't currently use.
 
 ## Security
 
