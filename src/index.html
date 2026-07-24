@@ -359,7 +359,7 @@ body {
   <!-- Titlebar -->
   <div class="titlebar layer">
     <div class="brand" id="brand-title"><span class="v">sc</span><span class="kb">Killboard</span></div>
-    <span class="brand-ver">v1.4.4</span>
+    <span class="brand-ver">v1.4.5</span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
       <div class="vol-ctrl">
         <button class="vol-mute" id="vol-mute" title="Mute">🔊</button>
@@ -564,7 +564,7 @@ body {
   <div class="pane layer" id="pane-about">
     <div class="about-wrap">
       <div class="about-brand"><span class="v">sc</span><span class="kb">Killboard</span></div>
-      <div style="font-size:11px;color:var(--tx3)">Version 1.4.4</div>
+      <div style="font-size:11px;color:var(--tx3)">Version 1.4.5</div>
       <div class="about-divider"></div>
       <div class="about-text">
         Tracks Star Citizen crime events in real time<br>
@@ -645,7 +645,7 @@ body {
     feedEl.appendChild(line)
     feedEl.scrollTop = feedEl.scrollHeight
   }
-  addLog('ok', `scKillboard v1.4.4 ready.`)
+  addLog('ok', `scKillboard v1.4.5 ready.`)
 
   window.vkb.on('log', (type, msg) => addLog(type, msg))
 
@@ -1244,6 +1244,10 @@ body {
 
 <script>
 (function(){
+  // window.vkb only exists inside the Electron app (injected by preload). Opening
+  // this HTML directly in a browser has no bridge, so bail out quietly instead of
+  // throwing — the auto-update UI is only meaningful in the packaged app anyway.
+  if(!window.vkb || typeof window.vkb.on!=='function'){return;}
   var $=function(id){return document.getElementById(id);};
   var banner=$('update-banner'),bTxt=$('update-banner-txt'),bPct=$('update-banner-pct'),
       bAction=$('update-banner-action'),bDismiss=$('update-banner-dismiss'),

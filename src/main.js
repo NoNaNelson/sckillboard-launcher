@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.4
+ * scKillboard - Main Process v1.4.5
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
