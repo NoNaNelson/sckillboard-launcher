@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.2
+ * scKillboard - Main Process v1.4.3
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -385,9 +385,15 @@ const CORPSE_RE = /CSCActorCorpseUtils::PopulateItemPortForItemRecoveryEntitleme
 const SHIP_RE           = /SHUDEvent_OnNotification.*"You have joined channel '(.+?) : /
 const SHIP_EXIT_RE      = /CVehicleMovementBase::ClearDriver: Local client node \[(\d+)\] releasing control token for '(.+?)'/
 
-// Weapon in hand — fires when player draws a weapon
-const WEAPON_HAND_RE    = /AttachmentReceived Player\[(.+?)\].*Port\[weapon_attach_hand_right\].*Attachment\[([^,]+),/
-const WEAPON_HOLSTER_RE = /AttachmentReceived Player\[(.+?)\].*Port\[weapon_attach_hand_right\].*Status\[detached\]/
+// Weapon in hand — Star Citizen logs inventory moves as:
+//   <AttachmentReceived> Player[handle] Attachment[id, class, guid] Status[..] Port[..]
+// Drawn  = Port[weapon_attach_hand_right];  stowed/holstered = Port[wep_stocked_N].
+// NOTE: the field order is Attachment BEFORE Port, and the tag carries a '>'. An
+// earlier game log-format change broke the old patterns (they looked for Port
+// before Attachment, and no '>'), which is why FPS weapons stopped tracking.
+// Group 1 = player handle, Group 2 = clean weapon class (e.g. gmni_smg_ballistic_01).
+const WEAPON_HAND_RE    = /<AttachmentReceived> Player\[(.+?)\] Attachment\[[^,]+,\s*([^,\]]+).*?Port\[weapon_attach_hand_right\]/
+const WEAPON_HOLSTER_RE = /<AttachmentReceived> Player\[(.+?)\] Attachment\[[^,]+,\s*([^,\]]+).*?Port\[wep_stocked_/
 
 // Vehicle destruction — attacker POV (crime notification)
 const VEH_DESTROY_CRIME_RE = /SHUDEvent.*"Crime Committed: Destruction of Vehicle[\s\r\n]+against (.+?):/
@@ -532,10 +538,10 @@ function startWatcher(logPath, win) {
           // ── Weapon in hand tracking ───────────────────────────────────────
           const weaponM = WEAPON_HAND_RE.exec(line)
           if (weaponM && weaponM[1] === (detectedHandle || '')) {
-            weaponInHand = weaponM[2].replace(/_\d{9,}.*/, '')
+            weaponInHand = weaponM[2].trim()
           }
           const holsterM = WEAPON_HOLSTER_RE.exec(line)
-          if (holsterM && holsterM[1] === (detectedHandle || '')) {
+          if (holsterM && holsterM[1] === (detectedHandle || '') && holsterM[2].trim() === weaponInHand) {
             weaponInHand = null
           }
 
@@ -643,9 +649,13 @@ function startWatcher(logPath, win) {
                   win.webContents.send('log', 'info', `↷ Skipping crime kill — already posted as bounty`)
                 } else {
                 const kill = { crime, victim, ts }
-                pendingKill = { ...kill, weapon: null, timer: setTimeout(() => {
+                // Capture the weapon the attacker had drawn AT kill time — for an
+                // on-foot kill this IS the FPS weapon used. Null while in a ship.
+                const handWeapon = inShip ? null : weaponInHand
+                pendingKill = { ...kill, weapon: null, handWeapon, timer: setTimeout(() => {
                   if (pendingKill && pendingKill.victim === kill.victim) {
-                    handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts, pendingKill.weapon, win,
+                    handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts,
+                      pendingKill.handWeapon || pendingKill.weapon, win,
                       { ship: currentShip, bounty: activeBounty })
                     pendingKill = null
                   }
@@ -663,7 +673,10 @@ function startWatcher(logPath, win) {
             if (cm2 && !pendingKill.weapon) {
               pendingKill.weapon = cm2[1]
               clearTimeout(pendingKill.timer)
-              handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts, pendingKill.weapon, win,
+              // Prefer the attacker's in-hand weapon (the actual kill weapon);
+              // fall back to the corpse-recovered weapon if none was tracked.
+              handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts,
+                pendingKill.handWeapon || pendingKill.weapon, win,
                 { ship: currentShip, bounty: activeBounty })
               pendingKill = null
             }
@@ -687,18 +700,150 @@ function stopWatcher() {
 function fmtWeapon(raw) {
   if (!raw) return null
   const WEAPON_MAP = {
-    'none_rifle_multi_01': 'Parallax', 'none_lmg_ballistic_01': 'Hammerbolt',
-    'behr_smg_ballistic_01': 'Broadsword', 'ksar_pistol_ballistic_01': 'Kastak Arms Pistol',
-    'lbco_sniper_energy_01': 'Atzkav', 'volt_rifle_energy_01': 'Volt Rifle',
-    'volt_sniper_energy_01': 'Parallax', 'utfl_crossbow_ballistic_01': 'Devastator',
-    'gmni_smg_ballistic_01': 'Gemini S71', 'behr_rifle_ballistic_01': 'P4-AR',
-    'klwe_rifle_laser_01': 'Klaus & Werner Rifle', 'arst_shotgun_ballistic_01': 'Devastator Shotgun',
-    'gyrs_knife_01': 'Knife', 'banu_melee_04': 'Banu Staff', 'crlf_medgun_01': 'Medpen',
+    // ── FPS weapons — from objectcatalog.json (authoritative) ──────────────
+    // Klaus & Werner
+    'klwe_rifle_energy_01': 'Gallant Rifle',
+    'klwe_smg_energy_01': 'Lumin V SMG',
+    'klwe_pistol_energy_01': 'Arclight Pistol',
+    'klwe_sniper_energy_01': 'Arrowhead Sniper Rifle',
+    'klwe_lmg_energy_01': 'Demeco LMG',
+    // Gemini
+    'gmni_shotgun_ballistic_01': 'R97 Shotgun',
+    'gmni_sniper_ballistic_01': 'A03 Sniper Rifle',
+    'gmni_smg_ballistic_01': 'C54 SMG',
+    'gmni_lmg_ballistic_01': 'F55 LMG',
+    'gmni_pistol_ballistic_01': 'LH86 Pistol',
+    'gmni_rifle_ballistic_01': 'S71 Rifle',
+    // Volt
+    'volt_rifle_energy_01': 'Parallax Rifle',
+    'volt_shotgun_energy_01': 'Prism Shotgun',
+    'volt_smg_energy_01': 'Quartz SMG',
+    // Apocalypse Arms
+    'apar_special_ballistic_02': 'Animus Missile Launcher',
+    'apar_special_ballistic_01': 'Scourge Railgun',
+    // Kastak Arms
+    'ksar_pistol_ballistic_01': 'Coda Pistol',
+    'ksar_smg_energy_01': 'Custodian SMG',
+    'ksar_shotgun_energy_01': 'Devastator Shotgun',
+    'ksar_rifle_energy_01': 'Karna Rifle',
+    'ksar_shotgun_ballistic_01': 'Ravager-212 Shotgun',
+    'ksar_sniper_ballistic_01': 'Scalpel Sniper Rifle',
+    // Lightning Bolt Co.
+    'lbco_pistol_energy_01': 'Yubarev Pistol',
+    'lbco_sniper_energy_01': 'Atzkav Sniper Rifle',
+    // Hedeby Gunworks
+    'hdgw_pistol_ballistic_01': 'Salvo Frag Pistol',
+    // Behring
+    'behr_shotgun_ballistic_01': 'BR-2 Shotgun',
+    'behr_lmg_ballistic_01': 'FS-9 LMG',
+    'behr_glauncher_ballistic_01': 'GP-33 MOD Grenade Launcher',
+    'behr_rifle_ballistic_01': 'P4-AR Rifle',
+    'behr_sniper_ballistic_01': 'P6-LR Sniper Rifle',
+    'behr_rifle_ballistic_02': 'P8-AR Rifle',
+    'behr_smg_ballistic_01': 'P8-SC SMG',
+    'behr_pistol_ballistic_01': 'S-38 Pistol',
+    // Misc / generic
+    'sasu_pistol_toy_01': 'WowBlast Toy Pistol',
+    'none_shotgun_ballistic_01': 'Deadrig Shotgun',
+    'none_smg_energy_01': 'Ripper SMG',
+    'utfl_melee_01': 'FSK-8 Combat Knife',
+    'none_melee_01': 'Prison Shiv',
+    // ── Extras not in the catalog (kept from the previous map) ─────────────
+    'none_lmg_ballistic_01': 'Hammerbolt',
+    'utfl_crossbow_ballistic_01': 'Devastator',
+    'klwe_rifle_laser_01': 'Klaus & Werner Rifle',
+    'arst_shotgun_ballistic_01': 'Devastator Shotgun',
+    'gyrs_knife_01': 'Knife',
+    'banu_melee_04': 'Banu Staff',
+    'crlf_medgun_01': 'Medpen',
   }
   for (const [key, label] of Object.entries(WEAPON_MAP)) {
     if (raw.toLowerCase().startsWith(key)) return label
   }
   return raw.replace(/_\d+$/, '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+}
+
+function cleanShipName(raw) {
+  if (!raw) return ''
+  const SHIPS = {
+    'AEGS_AVENGER': "Aegis Avenger",     'AEGS_AVENGER_STALKER': "Avenger Stalker",     'AEGS_AVENGER_TITAN': "Avenger Titan",
+    'AEGS_AVENGER_TITAN_RENEGADE': "Avenger Titan Renegade",     'AEGS_AVENGER_WARLOCK': "Avenger Warlock",     'AEGS_ECLIPSE': "Eclipse",
+    'AEGS_GLADIUS': "Gladius",     'AEGS_GLADIUS_DUNLEVY': "Gladius Dunlevy",     'AEGS_GLADIUS_PIR': "Gladius Pirate",
+    'AEGS_GLADIUS_VALIANT': "Gladius Valiant",     'AEGS_HAMMERHEAD': "Hammerhead",     'AEGS_IDRIS': "Aegis Idris",
+    'AEGS_IDRIS_M': "Idris M",     'AEGS_IDRIS_P': "Idris P",     'AEGS_NAUTILUS': "Aegis Nautilus",
+    'AEGS_RECLAIMER': "Reclaimer",     'AEGS_REDEEMER': "Redeemer",     'AEGS_RETALIATOR': "Retaliator",
+    'AEGS_SABRE': "Sabre",     'AEGS_SABRE_COMET': "Sabre Comet",     'AEGS_SABRE_FIREBIRD': "Sabre Firebird",
+    'AEGS_SABRE_PEREGRINE': "Sabre Peregrine",     'AEGS_SABRE_RAVEN': "Sabre Raven",     'AEGS_TITAN': "Aegis Titan",
+    'AEGS_VANGUARD': "Aegis Vanguard",     'AEGS_VANGUARD_HARBINGER': "Vanguard Harbinger",     'AEGS_VANGUARD_HOPLITE': "Vanguard Hoplite",
+    'AEGS_VANGUARD_SENTINEL': "Vanguard Sentinel",     'AEGS_VANGUARD_WARDEN': "Vanguard Warden",     'ANVL_ARROW': "Arrow",
+    'ANVL_ASGARD': "Asgard",     'ANVL_BALLISTA': "Ballista",     'ANVL_BALLISTA_DUNESTALKER': "Ballista Dunestalker",
+    'ANVL_BALLISTA_SNOWBLIND': "Ballista Snowblind",     'ANVL_C8R_PISCES': "C8R Pisces Rescue",     'ANVL_C8X_PISCES': "C8X Pisces Expidition",
+    'ANVL_C8_PISCES': "C8 Pisces",     'ANVL_CARRACK': "Carrack",     'ANVL_CARRACK_EXPEDITION': "Carrack Expedition",
+    'ANVL_CENTURION': "Centurion",     'ANVL_CRUSADER': "Anvil Crusader",     'ANVL_F7A': "Anvil F7A Hornet",
+    'ANVL_F7C': "Anvil Hornet",     'ANVL_GLADIATOR': "Gladiator",     'ANVL_HAWK': "Hawk",
+    'ANVL_HORNET_F7A_MK1': "Military Hornet Mk1",     'ANVL_HORNET_F7A_MK2': "Military Hornet Mk2",     'ANVL_HORNET_F7C': "Hornet Base Mk1",
+    'ANVL_HORNET_F7CM': "Super Hornet Mk1",     'ANVL_HORNET_F7CM_HEARTSEEKER': "Super Hornet Heartseeker Mk1",     'ANVL_HORNET_F7CM_MK2': "Super Hornet Mk2",
+    'ANVL_HORNET_F7CM_MK2_HEARTSEEKER': "Super Hornet Heartseeker Mk2",     'ANVL_HORNET_F7CR': "Hornet Tracker Mk1",     'ANVL_HORNET_F7CR_MK2': "Hornet Tracker Mk2",
+    'ANVL_HORNET_F7CS': "Hornet Ghost Mk1",     'ANVL_HORNET_F7CS_MK2': "Hornet Ghost Mk2",     'ANVL_HORNET_F7C_MK2': "Hornet Base Mk2",
+    'ANVL_HORNET_F7C_WILDFIRE': "Hornet Wildfire Mk1",     'ANVL_HURRICANE': "Hurricane",     'ANVL_LIBERATOR': "Anvil Liberator",
+    'ANVL_LIGHTNING_F8C': "Lightning F8C",     'ANVL_LIGHTNING_F8C_PLAT': "Lightning F8C Whale Wdition",     'ANVL_SPARTAN': "Spartan",
+    'ANVL_TERRAPIN': "Terrapin",     'ANVL_TERRAPIN_MEDIC': "Terrapin Medic",     'ANVL_VALKYRIE': "Valkyrie",
+    'ARGO_ATLS': "ATLS",     'ARGO_ATLS_IKTI': "ATLS Ikti",     'ARGO_ATLS_IKTI_ARGOS': "ATLS Ikti Rad",
+    'ARGO_CSV_CARGO': "CSV-SM",     'ARGO_MOLE': "Mole",     'ARGO_MPUV': "MPUV Cargo",
+    'ARGO_MPUV_1T': "MPUV Tractor",     'ARGO_MPUV_TRANSPORT': "MPUV Personnel",     'ARGO_RAFT': "Raft",
+    'ARGO_SRV': "SRV",     'BANU_DEFENDER': "Defender",     'BANU_MERCHANTMAN': "Banu Merchantman",
+    'CNOU_HOVERQUAD': "HoverQuad",     'CNOU_MUSTANG': "Consolidated Mustang",     'CNOU_MUSTANG_ALPHA': "Mustang Alpha",
+    'CNOU_MUSTANG_ALPHA_DELTA': "Mustang Delta",     'CNOU_MUSTANG_ALPHA_GAMMA': "Mustang Gamma",     'CNOU_MUSTANG_BETA': "Mustang Beta",
+    'CNOU_MUSTANG_OMEGA': "Mustang Omega",     'CNOU_NOMAD': "Nomad",     'CRUS_INTREPID': "Intrepid",
+    'CRUS_SPIRIT_A1': "A1 Spirit",     'CRUS_SPIRIT_C1': "C1 Spirit",     'CRUS_STARFIGHTER_INFERNO': "Ares Starfighter Inferno",
+    'CRUS_STARFIGHTER_ION': "Ares Starfighter Ion",     'CRUS_STARLIFTER_A2': "A2 Hercules Starlifter",     'CRUS_STARLIFTER_C2': "C2 Hercules Starlifter",
+    'CRUS_STARLIFTER_M2': "M2 Hercules Starlifter",     'CRUS_STAR_RUNNER': "Mercury Star Runner",     'DRAK_BUCCANEER': "Buccaneer",
+    'DRAK_CATERPILLAR': "Caterpillar",     'DRAK_CATERPILLAR_PIRATE': "Caterpillar Pirate",     'DRAK_CORSAIR': "Corsair",
+    'DRAK_CUTLASS': "Drake Cutlass",     'DRAK_CUTLASS_BLACK': "Cutlass Black",     'DRAK_CUTLASS_BLUE': "Cutlass Blue",
+    'DRAK_CUTLASS_RED': "Cutlass Red",     'DRAK_CUTLASS_STEEL': "Cutlass Steel",     'DRAK_CUTTER': "Cutter",
+    'DRAK_CUTTER_RAMBLER': "Cutter Rambler",     'DRAK_CUTTER_SCOUT': "Cutter Scout",     'DRAK_DRAGONFLY': "Dragonfly",
+    'DRAK_DRAGONFLY_PINK': "Dragonfly Star Kitten",     'DRAK_DRAGONFLY_YELLOW': "Dragonfly Yellowjacket",     'DRAK_GOLEM': "Golem",
+    'DRAK_HERALD': "Herald",     'DRAK_KRAKEN': "Drake Kraken",     'DRAK_MULE': "Mule",
+    'DRAK_VULTURE': "Vulture",     'ESPR_PROWLER': "Prowler",     'ESPR_PROWLER_UTILITY': "Prowler Utility",
+    'ESPR_TALON': "Talon",     'ESPR_TALON_SHRIKE': "Talon Shrike",     'GAMA_SYULEN': "Syulen",
+    'GAMA_TOXICAT': "Gatac Railen",     'GRIN_MTC': "MTC",     'GRIN_PTV': "PTV",
+    'GRIN_ROC': "ROC",     'GRIN_ROC_DS': "ROC-DS",     'GRIN_STV': "STV",
+    'KRIG_P52': "Kruger P-52",     'KRIG_P52_MERLIN': "P-52 Merlin",     'KRIG_P72': "Kruger P-72",
+    'KRIG_P72_ARCHIMEDES': "Kruger P-72 Archimedes",     'KRIG_P72_ARCHIMEDES_EMERALD': "P-72 Archimedes Emerald",     'MISC_FORTUNE': "Miscfortune",
+    'MISC_FREELANCER': "Freelancer",     'MISC_FREELANCER_DUR': "Freelancer DUR",     'MISC_FREELANCER_MAX': "Freelancer Max",
+    'MISC_FREELANCER_MIS': "Freelancer MIS",     'MISC_FURY': "Fury",     'MISC_FURY_LX': "Fury LX",
+    'MISC_FURY_MIRU': "Fury LX",     'MISC_HULL': "MISC Hull",     'MISC_HULL_A': "Hull A",
+    'MISC_HULL_C': "Hull C",     'MISC_PROSPECTOR': "Prospector",     'MISC_RAZOR': "Razor",
+    'MISC_RAZOR_EX': "Razor EX",     'MISC_RAZOR_LX': "Razor LX",     'MISC_RELIANT': "Reliant Kore",
+    'MISC_RELIANT_MAKO': "Reliant Mako",     'MISC_RELIANT_SEN': "Relaint Sen",     'MISC_RELIANT_TANA': "Reliant Tana",
+    'MISC_STARFARER': "Starfarer",     'MISC_STARFARER_GEMINI': "Starfarer Gemini",     'MISC_STARLANCER': "MISC Starlancer",
+    'MISC_STARLANCER_MAX': "Starlancer Max",     'MISC_STARLANCER_TAC': "Starlancer Tac",     'MRAI_FURY': "Mirai Fury",
+    'MRAI_GUARDIAN': "Guardian",     'MRAI_GUARDIAN_MX': "Guardian MX",     'MRAI_GUARDIAN_QI': "Guardian QI",
+    'MRAI_PULSE': "Pulse",     'MRAI_PULSE_LX': "Pulse LX",     'ORIG_100I': "100i",
+    'ORIG_125A': "125a",     'ORIG_135C': "135c",     'ORIG_300I': "300i",
+    'ORIG_315P': "315p",     'ORIG_325A': "325a",     'ORIG_350R': "350r",
+    'ORIG_400I': "400i",     'ORIG_600I': "600i",     'ORIG_600I_EXECUTIVE_EDITION': "600i Whale Edition",
+    'ORIG_600I_TOURING': "600i Touring",     'ORIG_85X': "85x Limited",     'ORIG_890JUMP': "890j",
+    'ORIG_M50': "M50 Interceptor",     'ORIG_M80': "Origin M80",     'ORIG_X1': "X1",
+    'ORIG_X1_FORCE': "X1 Force",     'ORIG_X1_VELOCITY': "X1 Velocity",     'RSI_AURORA': "RSI Aurora",
+    'RSI_AURORA_CL': "Aurora CL",     'RSI_AURORA_ES': "Aurora ES",     'RSI_AURORA_LN': "Aurora LN",
+    'RSI_AURORA_LX': "Aurora LX",     'RSI_AURORA_MR': "Aurora MR",     'RSI_CONSTELLATION': "RSI Constellation",
+    'RSI_CONSTELLATION_ANDROMEDA': "Constellation Andromeda",     'RSI_CONSTELLATION_AQUILA': "Constellation Aquila",     'RSI_CONSTELLATION_PHOENIX': "Constellation Phoenix",
+    'RSI_CONSTELLATION_PHOENIX_EMERALD': "Constellation Phoenix Emerald",     'RSI_CONSTELLATION_TAURUS': "Constellation Taurus",     'RSI_LYNX': "Lynx",
+    'RSI_MANTIS': "Mantis",     'RSI_PERSEUS': "RSI Perseus",     'RSI_POLARIS': "Polaris",
+    'RSI_SCORPIUS': "Scorpius",     'RSI_SCORPIUS_ANTARES': "Scorpius Antares",     'RSI_URSA': "RSI Ursa",
+    'RSI_URSA_MEDIVAC': "Ursa Medivac",     'RSI_URSA_ROVER': "Ursa",     'RSI_URSA_ROVER_EMERALD': "Ursa Fortuna",
+    'RSI_ZEUS': "RSI Zeus",     'RSI_ZEUS_CL': "Zeuc Mk2 CL",     'RSI_ZEUS_ES': "Zeus Mk2 ES",
+    'TMBL_CYCLONE': "Cyclone",     'TMBL_CYCLONE_AA': "Cyclone AA",     'TMBL_CYCLONE_MT': "Cyclone MT",
+    'TMBL_CYCLONE_RC': "Cyclone RC",     'TMBL_CYCLONE_RN': "Cyclone RN",     'TMBL_CYCLONE_TR': "Cyclone TR",
+    'TMBL_NOVA': "Nova",     'TMBL_RANGER': "Tumbril Ranger",     'TMBL_STORM': "Storm",
+    'TMBL_STORM_AA': "Storm AA",     'VNCL_BLADE': "Blade",     'VNCL_GLAIVE': "Glaive",
+    'VNCL_SCYTHE': "Scythe",     'XIAN_NOX': "Nox",     'XIAN_SCOUT': "Khartu-al",
+    'XNAA_NURO': "Xian Nuro",     'XNAA_PUCK': "Xian Puck",     'XNAA_SANTOKYAI': "San'tok.yai",
+  }
+  const key = raw.toUpperCase().replace(/^VEH_/, '').replace(/_PU$/, '').replace(/_\d+$/, '')
+  if (SHIPS[key]) return SHIPS[key]
+  return raw.replace(/^VEH_/i, '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).trim()
 }
 
 async function handleKill(crime, victim, ts, weapon, win, ctx = {}) {
@@ -722,7 +867,7 @@ async function handleKill(crime, victim, ts, weapon, win, ctx = {}) {
   const attacker    = cfg.attacker_handle || 'Unknown'
   const personalWebhook = cfg.personal_enabled ? cfg.personal_webhook : ''
   const weaponLabel = weapon ? fmtWeapon(weapon) : null
-  const ship        = ctx.ship   || currentShip || ''
+  const ship        = cleanShipName(ctx.ship || currentShip || '')
   const bounty      = ctx.bounty || activeBounty || null
   const zone        = ctx.location || fmtZone() || ''
 
