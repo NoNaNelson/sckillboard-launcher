@@ -1,6 +1,6 @@
 {
   "name": "sckillboard",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "scKillboard - Star Citizen Kill Tracker",
   "main": "src/main.js",
   "scripts": {
@@ -12,6 +12,13 @@
   "build": {
     "appId": "com.sckillboard.app",
     "productName": "scKillboard",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ver9jl-cell",
+        "repo": "sckillboard-launcher"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"
@@ -24,6 +31,9 @@
       "src/**/*",
       "assets/**/*"
     ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^32.0.0",
