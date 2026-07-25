@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.3
+ * scKillboard - Main Process v1.4.6
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -11,13 +11,25 @@ const http   = require('http')
 const os     = require('os')
 const crypto = require('crypto')
 const { exec } = require('child_process')
+const IS_LINUX = process.platform === 'linux'
+const USERAGENT = IS_LINUX ?
+  'Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0' :
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36'
+
 
 // ── Star Citizen process check ────────────────────────────────────────────────
 function isScRunning() {
   return new Promise(resolve => {
-    exec('tasklist /FI "IMAGENAME eq StarCitizen.exe" /NH', (err, stdout) => {
-      resolve(!err && stdout.toLowerCase().includes('starcitizen.exe'))
-    })
+    if (IS_LINUX) {
+      // Linux: SC runs under Wine/Proton, but the process name is usually still StarCitizen.exe
+      exec('pgrep -fi StarCitizen.exe', (err, stdout) => {
+        resolve(!err && stdout.trim().length > 0)
+      })
+    } else {
+      exec('tasklist /FI "IMAGENAME eq StarCitizen.exe" /NH', (err, stdout) => {
+        resolve(!err && stdout.toLowerCase().includes('starcitizen.exe'))
+      })
+    }
   })
 }
 
@@ -40,10 +52,12 @@ const API_BASE   = 'https://www.sckillboard.com'
 // API_SECRET is loaded from config at runtime — never hardcoded
 function getApiSecret() { return loadConfig().api_secret || '' }
 function getSessionToken() { return loadConfig().session_token || '' }
-const CONFIG_DIR  = path.join(os.homedir(), 'AppData', 'Roaming', 'vKillboard')
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
-const DEFAULT_LOG = 'C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE\\Game.log'
 
+const CONFIG_DIR = IS_LINUX ? path.join(os.homedir(), ".config", "sckillboard") : path.join(os.homedir(), 'AppData', 'Roaming', 'vKillboard')
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
+const DEFAULT_LOG = IS_LINUX ? 
+  path.join(os.homedir(), 'Games', 'star-citizen', 'drive_c', 'Program Files', 'Roberts Space Industries', 'StarCitizen', 'LIVE', 'Game.log') :
+  'C:\\Program\ Files\\Roberts\ Space\ Industries\\StarCitizen\\LIVE\\Game.log'
 const KILL_CRIMES = new Set([
   'Negligent Homicide', 'Murder', 'Manslaughter',
   'Aggravated Assault', 'Destruction of Vehicle', 'Grievous Bodily Harm',
@@ -153,7 +167,7 @@ function httpGet(urlStr) {
       path: url.pathname + url.search,
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': USERAGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://robertsspaceindustries.com/',
@@ -538,10 +552,15 @@ function startWatcher(logPath, win) {
           // ── Weapon in hand tracking ───────────────────────────────────────
           const weaponM = WEAPON_HAND_RE.exec(line)
           if (weaponM && weaponM[1] === (detectedHandle || '')) {
-            weaponInHand = weaponM[2].trim()
+            const w = weaponM[2].trim()
+            if (w !== weaponInHand) {
+              weaponInHand = w
+              win.webContents.send('log', 'info', `🔫 Weapon ready: ${fmtWeapon(weaponInHand) || weaponInHand}`)
+            }
           }
           const holsterM = WEAPON_HOLSTER_RE.exec(line)
           if (holsterM && holsterM[1] === (detectedHandle || '') && holsterM[2].trim() === weaponInHand) {
+            win.webContents.send('log', 'info', `🔫 Holstered ${fmtWeapon(weaponInHand) || weaponInHand}`)
             weaponInHand = null
           }
 
@@ -1057,7 +1076,12 @@ function createMain() {
   // Keep watching whether Star Citizen is running so the renderer can hard-block
   // "Start Tracking" until SC is closed — tracking must be live BEFORE the game
   // opens, or early kills arrive missing ship/weapon details.
-  mainWin.webContents.once('did-finish-load', () => startScPoll(mainWin))
+  mainWin.webContents.once('did-finish-load', () => {
+    startScPoll(mainWin)
+    // Voluntary auto-check once the main UI is up (the launch-time check runs
+    // before this window exists, so its events wouldn't reach the banner).
+    if (autoUpdater && app.isPackaged) { try { autoUpdater.checkForUpdates() } catch (e) {} }
+  })
   mainWin.on('closed', () => { stopScPoll(); stopWatcher(); mainWin = null; app.quit() })
 }
 
@@ -1206,13 +1230,15 @@ ipcMain.on('boot-complete', () => { proceedAfterIntro() })
 
 ipcMain.on('browse-log', async () => {
   if (!mainWin) return
+  const cfg = loadConfig()
   const result = await dialog.showOpenDialog(mainWin, {
     title: 'Select Game.log',
+    defaultPath: cfg.log_path,
     filters: [{ name: 'Log files', extensions: ['log'] }, { name: 'All files', extensions: ['*'] }]
   })
   if (!result.canceled && result.filePaths[0]) {
     // Persist straight away — the user shouldn't have to also click Save Settings.
-    const cfg = loadConfig(); cfg.log_path = result.filePaths[0]; saveConfig(cfg)
+    cfg.log_path = result.filePaths[0]; saveConfig(cfg)
     mainWin.webContents.send('log-path-selected', result.filePaths[0])
   }
 })
@@ -1259,9 +1285,25 @@ const DEFAULT_RELEASES_URL = 'https://github.com/ver9jl-cell/sckillboard-launche
 let _updateBlocking = false
 
 function handleUpdateRequired(info) {
-  if (_updateBlocking) return   // only ever prompt once
+  if (_updateBlocking) return   // only ever act once
   _updateBlocking = true
-  forceUpdate(mainWin || splashWin || null, info || {})
+  _forcedUpdate   = true
+  _lastUpdateInfo = info || {}
+  // Show the blocking "updating" overlay and pull + install the new build in-app.
+  _sendUpdate({ state: 'forced', version: (info && info.version) || '' })
+  if (autoUpdater && app.isPackaged) {
+    try {
+      autoUpdater.checkForUpdates()
+      _forcedTimer = setTimeout(() => _forcedBrowserFallback(), 30000)  // safety net
+    } catch (e) { _forcedBrowserFallback() }
+  } else {
+    _forcedBrowserFallback()   // dev run or missing dep → old browser+quit flow
+  }
+}
+
+function _forcedBrowserFallback() {
+  if (_forcedTimer) { clearTimeout(_forcedTimer); _forcedTimer = null }
+  forceUpdate(mainWin || splashWin || null, _lastUpdateInfo || {})
 }
 
 async function forceUpdate(win, info) {
@@ -1280,7 +1322,9 @@ async function forceUpdate(win, info) {
       cancelId: 1,
     })
     if (choice.response === 0) {
-      shell.openExternal(/^https:\/\//i.test(info.download_url || '') ? info.download_url : DEFAULT_RELEASES_URL)
+      // Always our own GitHub releases page — never a server-supplied URL, so a
+      // compromised update server can't redirect users to a malicious download.
+      shell.openExternal(DEFAULT_RELEASES_URL)
     }
   } catch (e) {
     // If the dialog itself fails, still quit — we must not let an outdated client run.
@@ -1298,26 +1342,70 @@ async function checkForUpdates(win) {
       handleUpdateRequired(res)
       return
     }
-    // Soft: a newer version exists but we're still supported → optional prompt.
-    if (compareVersions(res.version, current) > 0) {
-      const choice = await dialog.showMessageBox(win || undefined, {
-        type: 'info',
-        noLink: true,
-        title: 'Update available',
-        message: `scKillboard ${res.version} is available (you have ${current}).`,
-        detail: res.changelog || 'A new version of the launcher is available.',
-        buttons: ['Download Update', 'Later'],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      if (choice.response === 0 && res.download_url && /^https:\/\//i.test(res.download_url)) {
-        shell.openExternal(res.download_url)
-      }
+    // Soft: a newer build exists — let electron-updater fetch it and show the
+    // in-app banner (renderer reacts to the 'update-status' events).
+    if (compareVersions(res.version, current) > 0 && autoUpdater && app.isPackaged) {
+      try { autoUpdater.checkForUpdates() } catch (e) {}
     }
   } catch (e) {
     // Update server unreachable — fail silently, never block app startup
   }
 }
+
+// ── In-app auto-update (electron-updater) ────────────────────────────────────
+// Pulls new versions straight from the GitHub Releases and installs on restart —
+// no browser, no manual installer. Only runs in a packaged build; a dev run or a
+// missing dependency falls back to the old open-the-download-page flow.
+let autoUpdater = null
+try { autoUpdater = require('electron-updater').autoUpdater } catch (e) { autoUpdater = null }
+
+let _forcedUpdate   = false   // true when the server forced the update (HTTP 426)
+let _lastUpdateInfo = {}
+let _forcedTimer    = null
+
+function _sendUpdate(payload) {
+  for (const w of [mainWin, splashWin]) {
+    if (w && !w.isDestroyed()) { try { w.webContents.send('update-status', payload) } catch (e) {} }
+  }
+}
+
+if (autoUpdater) {
+  autoUpdater.autoDownload = false          // prompt before downloading (voluntary updates)
+  autoUpdater.autoInstallOnAppQuit = true   // if downloaded, install on next quit as a fallback
+  autoUpdater.on('checking-for-update', () => _sendUpdate({ state: 'checking' }))
+  autoUpdater.on('update-available', (info) => {
+    _sendUpdate({ state: 'available', version: info && info.version, forced: _forcedUpdate })
+    if (_forcedUpdate) { try { autoUpdater.downloadUpdate() } catch (e) { _forcedBrowserFallback() } }
+  })
+  autoUpdater.on('update-not-available', () => {
+    _sendUpdate({ state: 'none' })
+    if (_forcedUpdate) _forcedBrowserFallback()
+  })
+  autoUpdater.on('download-progress', (p) => {
+    if (_forcedTimer) { clearTimeout(_forcedTimer); _forcedTimer = null }
+    _sendUpdate({ state: 'downloading', percent: Math.round((p && p.percent) || 0), forced: _forcedUpdate })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    _sendUpdate({ state: 'downloaded', version: info && info.version, forced: _forcedUpdate })
+    if (_forcedUpdate) setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
+  })
+  autoUpdater.on('error', (err) => {
+    _sendUpdate({ state: 'error', message: String((err && err.message) || err || 'update error') })
+    if (_forcedUpdate) _forcedBrowserFallback()
+  })
+}
+
+ipcMain.on('update:check', () => {
+  if (!autoUpdater || !app.isPackaged) { _sendUpdate({ state: 'none', dev: true }); return }
+  try { autoUpdater.checkForUpdates() } catch (e) { _sendUpdate({ state: 'error', message: String(e.message || e) }) }
+})
+ipcMain.on('update:download', () => {
+  if (!autoUpdater) return
+  try { autoUpdater.downloadUpdate() } catch (e) { _sendUpdate({ state: 'error', message: String(e.message || e) }) }
+})
+ipcMain.on('update:install', () => {
+  if (autoUpdater) setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
+})
 
 app.on('web-contents-created', (e, contents) => {
   contents.setWindowOpenHandler(({ url }) => {

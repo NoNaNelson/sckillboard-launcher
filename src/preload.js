@@ -33,11 +33,16 @@ contextBridge.exposeInMainWorld('vkb', {
   setVolume: (v) => ipcRenderer.send('set-volume', v),
   setMute:   (m) => ipcRenderer.send('set-mute',   m),
 
+  // Updates (electron-updater)
+  checkForUpdates: () => ipcRenderer.send('update:check'),
+  downloadUpdate:  () => ipcRenderer.send('update:download'),
+  installUpdate:   () => ipcRenderer.send('update:install'),
+
   // Events from main → renderer
   on: (channel, fn) => {
     const allowed = [
       'log', 'status', 'kill-count', 'log-path-selected',
-      'sc-status', 'last-kill-handle', 'tracking-state',
+      'sc-status', 'last-kill-handle', 'tracking-state', 'update-status',
     ]
     if (allowed.includes(channel)) {
       ipcRenderer.on(channel, (e, ...args) => fn(...args))

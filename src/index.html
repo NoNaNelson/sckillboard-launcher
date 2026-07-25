@@ -17,8 +17,8 @@
   --bg4:  #222222;
   --tx1:  #e8e8e8;
   --tx2:  #888888;
-  --tx3:  #444444;
-  --tx4:  #252525;
+  --tx3:  #787878;
+  --tx4:  #5a5a5a;
   --red:  #888888;
   --grn:  #aaaaaa;
   --ora:  #999999;
@@ -59,7 +59,7 @@ body {
 .vol-slider:hover::-webkit-slider-thumb{background:var(--tx1)}
 .brand .v  { color: var(--tx1); }
 .brand .kb { color: var(--ac); font-family: 'Share Tech Mono', monospace; }
-.brand-ver { font-size: 10px; color: var(--bg4); margin-left: 8px; }
+.brand-ver { font-size: 10px; color: #7a7a7a; margin-left: 8px; }
 
 /* Font picker */
 .kill-badge {
@@ -141,10 +141,10 @@ body {
 .wx-bar-row:last-child{margin-bottom:0}
 .wx-bar-lbl{font-size:10px;color:var(--tx3);width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wx-bar-track{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
-.wx-bar-fill{height:100%;border-radius:2px;background:var(--tx3);transition:width .5s}
+.wx-bar-fill{height:100%;border-radius:2px;background:#444444;transition:width .5s}
 .wx-bar-val{font-size:10px;color:var(--tx2);min-width:24px;text-align:right}
 .wx-spark{display:flex;align-items:flex-end;gap:2px;height:36px}
-.wx-spark-col{flex:1;background:var(--tx4);border-radius:1px 1px 0 0;min-height:2px;transition:height .4s}
+.wx-spark-col{flex:1;background:#252525;border-radius:1px 1px 0 0;min-height:2px;transition:height .4s}
 .wx-spark-lbl{display:flex;justify-content:space-between;font-size:8px;color:var(--tx4);margin-top:3px}
 .wx-killer-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bg3)}
 .wx-killer-row:last-child{border-bottom:none}
@@ -187,7 +187,7 @@ body {
 
 /* Hour sparkline */
 .wx-spark { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
-.wx-spark-col { flex: 1; background: var(--tx3); border-radius: 1px 1px 0 0; opacity: 0.8; min-height: 2px; transition: height 0.4s; }
+.wx-spark-col { flex: 1; background: #444444; border-radius: 1px 1px 0 0; opacity: 0.8; min-height: 2px; transition: height 0.4s; }
 .wx-spark-lbl { display: flex; justify-content: space-between; font-size: 8px; color: var(--tx4); margin-top: 3px; }
 
 /* Top killer row */
@@ -224,11 +224,11 @@ body {
 }
 .tab {
   padding: 9px 18px; font-size: 11px;
-  color: var(--tx3); cursor: pointer;
+  color: #7a7a7a; cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: color 0.12s;
 }
-.tab:hover  { color: var(--tx2); }
+.tab:hover  { color: #a8a8a8; }
 .tab.active { color: var(--tx1); border-bottom-color: var(--ac); }
 
 /* ── Tab panes ── */
@@ -276,7 +276,7 @@ body {
 .feed-wrap::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
 
 .log-line { display: flex; gap: 8px; }
-.log-ts   { color: var(--bg4); flex-shrink: 0; }
+.log-ts   { color: #7a7a7a; flex-shrink: 0; }
 .c-ok     { color: var(--tx2); }
 .c-kill   { color: var(--tx1); }
 .c-info   { color: var(--tx3); }
@@ -346,7 +346,7 @@ body {
 .sb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--grn); }
 .sb-dot.offline { background: var(--red); }
 .sb-txt { font-size: 10px; color: var(--tx3); }
-.sb-sep { font-size: 10px; color: var(--bg4); }
+.sb-sep { font-size: 10px; color: #5a5a5a; }
 </style>
 </head>
 <body>
@@ -359,7 +359,7 @@ body {
   <!-- Titlebar -->
   <div class="titlebar layer">
     <div class="brand" id="brand-title"><span class="v">sc</span><span class="kb">Killboard</span></div>
-    <span class="brand-ver">v1.4.3</span>
+    <span class="brand-ver">v1.4.6</span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
       <div class="vol-ctrl">
         <button class="vol-mute" id="vol-mute" title="Mute">🔊</button>
@@ -513,6 +513,13 @@ body {
         <button class="save-btn" id="save-btn">  Save Settings  </button>
       </div>
 
+      <div class="section-title">Updates</div>
+      <div class="section-line"></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="resync-btn" id="update-check-btn">Check for Updates</button>
+        <span id="update-settings-status" style="font-size:11px;color:#787878"></span>
+      </div>
+
       <div style="height:1px;background:var(--bg3);margin:20px 0 10px"></div>
       <div style="font-size:9px;font-weight:700;color:var(--tx4);letter-spacing:1px;margin-bottom:10px">BETA TOOLS</div>
       <div style="display:flex;align-items:center;gap:12px">
@@ -557,7 +564,7 @@ body {
   <div class="pane layer" id="pane-about">
     <div class="about-wrap">
       <div class="about-brand"><span class="v">sc</span><span class="kb">Killboard</span></div>
-      <div style="font-size:11px;color:var(--tx3)">Version 1.4.3</div>
+      <div style="font-size:11px;color:var(--tx3)">Version 1.4.6</div>
       <div class="about-divider"></div>
       <div class="about-text">
         Tracks Star Citizen crime events in real time<br>
@@ -638,7 +645,7 @@ body {
     feedEl.appendChild(line)
     feedEl.scrollTop = feedEl.scrollHeight
   }
-  addLog('ok', `scKillboard v1.4.3 ready.`)
+  addLog('ok', `scKillboard v1.4.6 ready.`)
 
   window.vkb.on('log', (type, msg) => addLog(type, msg))
 
@@ -1213,5 +1220,70 @@ body {
 </script>
   <!-- Font picker bar -->
 
+
+<!-- Auto-update banner (voluntary) -->
+<div id="update-banner" style="display:none;position:fixed;top:48px;left:0;right:0;z-index:60;background:var(--bg2);border-bottom:1px solid var(--bg4);padding:8px 16px;align-items:center;gap:12px;font-size:12px">
+  <span style="font-size:13px">&#11015;</span>
+  <span id="update-banner-txt" style="color:var(--tx1)">Update available</span>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <span id="update-banner-pct" style="color:#888;font-size:11px"></span>
+    <button id="update-banner-action" class="save-btn" style="padding:4px 12px">Download</button>
+    <button id="update-banner-dismiss" class="resync-btn" style="padding:4px 10px">Later</button>
+  </div>
+</div>
+
+<!-- Forced-update overlay (blocking) -->
+<div id="update-overlay" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.94);flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px">
+  <div style="font-size:15px;font-weight:700;color:var(--tx1);letter-spacing:1.5px;margin-bottom:10px">UPDATE REQUIRED</div>
+  <div id="update-overlay-txt" style="font-size:12px;color:#888;margin-bottom:22px;max-width:340px;line-height:1.6">A newer version is required. Downloading now&hellip;</div>
+  <div style="width:280px;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+    <div id="update-overlay-bar" style="height:100%;width:0%;background:var(--ac);transition:width .3s"></div>
+  </div>
+  <div id="update-overlay-pct" style="font-size:11px;color:#787878;margin-top:8px">0%</div>
+</div>
+
+<script>
+(function(){
+  // window.vkb only exists inside the Electron app (injected by preload). Opening
+  // this HTML directly in a browser has no bridge, so bail out quietly instead of
+  // throwing — the auto-update UI is only meaningful in the packaged app anyway.
+  if(!window.vkb || typeof window.vkb.on!=='function'){return;}
+  var $=function(id){return document.getElementById(id);};
+  var banner=$('update-banner'),bTxt=$('update-banner-txt'),bPct=$('update-banner-pct'),
+      bAction=$('update-banner-action'),bDismiss=$('update-banner-dismiss'),
+      ov=$('update-overlay'),ovTxt=$('update-overlay-txt'),ovBar=$('update-overlay-bar'),ovPct=$('update-overlay-pct'),
+      chkBtn=$('update-check-btn'),setStatus=$('update-settings-status');
+  var state='idle';
+  function showBanner(txt,action,pct){
+    banner.style.display='flex'; bTxt.textContent=txt;
+    bPct.textContent=(pct!=null)?pct+'%':'';
+    if(action){bAction.style.display='';bAction.textContent=action;}else{bAction.style.display='none';}
+  }
+  if(chkBtn)chkBtn.addEventListener('click',function(){setStatus.style.color='#888';setStatus.textContent='Checking\u2026';window.vkb.checkForUpdates();});
+  if(bAction)bAction.addEventListener('click',function(){if(state==='downloaded')window.vkb.installUpdate();else window.vkb.downloadUpdate();});
+  if(bDismiss)bDismiss.addEventListener('click',function(){banner.style.display='none';});
+  window.vkb.on('update-status',function(u){
+    state=u.state;
+    switch(u.state){
+      case 'checking': setStatus.style.color='#888'; setStatus.textContent='Checking for updates\u2026'; break;
+      case 'available':
+        if(u.forced) break;
+        setStatus.style.color='var(--tx1)'; setStatus.textContent='v'+(u.version||'')+' available';
+        showBanner('scKillboard v'+(u.version||'')+' is available','Download'); break;
+      case 'downloading':
+        if(u.forced){ov.style.display='flex';ovBar.style.width=(u.percent||0)+'%';ovPct.textContent=(u.percent||0)+'%';}
+        else{showBanner('Downloading update\u2026',null,u.percent||0);}
+        setStatus.style.color='#888'; setStatus.textContent='Downloading\u2026 '+(u.percent||0)+'%'; break;
+      case 'downloaded':
+        if(u.forced){ovTxt.textContent='Update downloaded \u2014 restarting\u2026';ovBar.style.width='100%';ovPct.textContent='100%';}
+        else{showBanner('Update ready','Restart now');setStatus.style.color='#7fd67f';setStatus.textContent='Downloaded \u2014 restart to apply';}
+        break;
+      case 'none': setStatus.style.color='#888'; setStatus.textContent=u.dev?'Updates work in the installed app only':"You're up to date"; break;
+      case 'forced': ov.style.display='flex'; ovTxt.textContent='A newer version is required. Downloading now\u2026'; break;
+      case 'error': setStatus.style.color='#d68a8a'; setStatus.textContent='Update check failed'; break;
+    }
+  });
+})();
+</script>
 </body>
 </html>
