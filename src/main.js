@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.6
+ * scKillboard - Main Process v1.4.7
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -353,9 +353,10 @@ let pendingKill     = null
 let killCount       = 0
 
 // ── Ship + bounty state ───────────────────────────────────────────────────────
-let currentShip        = null   // ship name we're currently piloting
+let currentShip        = null   // ship name we're currently piloting (null once out of the seat)
+let lastShip           = null   // last ship we were confirmed in — survives leaving the seat
 let inShip             = false  // true when seated/piloting
-let weaponInHand       = null   // personal weapon currently drawn
+let weaponInHand       = null   // personal weapon CURRENTLY in the player's hands (null once holstered)
 let activeBounty       = null   // { target, missionId, missionType }
 let bountyCompleted    = false
 let pendingVehicleDestroy = null // { victim, ts } — vehicle destroy just before homicide
@@ -455,6 +456,7 @@ function startWatcher(logPath, win) {
   logPosition  = fs.statSync(logPath).size
   pendingCrime = null
   currentShip  = null
+  lastShip     = null
   inShip       = false
   weaponInHand = null
   activeBounty = null
@@ -536,6 +538,7 @@ function startWatcher(logPath, win) {
           const shipM = SHIP_RE.exec(line)
           if (shipM) {
             currentShip = shipM[1].trim()
+            lastShip    = currentShip
             inShip      = true
             win.webContents.send('log', 'info', `🚀 In ship: ${currentShip}`)
           }
@@ -544,7 +547,13 @@ function startWatcher(logPath, win) {
             // Only clear if this is the local player's GEID
             if (detectedGeid && exitM[1] === detectedGeid) {
               inShip      = false
-              win.webContents.send('log', 'info', `🛬 Exited ship: ${currentShip || '?'}`)
+              // SC never re-logs the ship channel join when you climb back into
+              // the SAME ship, so we can't see a re-entry. Keep crediting kills to
+              // this ship (as flight) whenever the player's hands are EMPTY — a kill
+              // with no weapon in hand means they got back in the seat. The moment
+              // a weapon is in their hands, they're on foot and kills are FPS.
+              if (currentShip) lastShip = currentShip
+              win.webContents.send('log', 'info', `🛬 Left seat: ${currentShip || lastShip || '?'} — counted as flight while hands are empty`)
               currentShip = null
             }
           }
@@ -668,14 +677,34 @@ function startWatcher(logPath, win) {
                   win.webContents.send('log', 'info', `↷ Skipping crime kill — already posted as bounty`)
                 } else {
                 const kill = { crime, victim, ts }
+                // A "Destruction of Vehicle" crime is definitive proof this was a
+                // ship/vehicle kill — record it so the near-simultaneous homicide
+                // line against the same victim is also credited as flight, even if
+                // the player drew a weapon at some point after leaving the seat.
+                if (/destruction of vehicle/i.test(crime)) {
+                  pendingVehicleDestroy = { victim, ts, ship: currentShip || lastShip }
+                }
+                // ── Ship vs FPS decided NOW (state can drift during the 35s wait) ──
+                // An FPS kill REQUIRES a weapon in the player's hands. Flight if:
+                // seated; OR a vehicle-destruction kill; OR the hands are empty and
+                // the player has been in a ship — meaning they climbed back into it
+                // (SC never re-logs the channel join, so we can't see the re-entry).
+                // Credited to the last ship they were in.
+                const isVehicleKill = /destruction of vehicle/i.test(crime) ||
+                  (pendingVehicleDestroy && pendingVehicleDestroy.victim.toLowerCase() === victim.toLowerCase())
+                const flightByReentry = !inShip && !weaponInHand && !!lastShip
+                const isShipKill = inShip || isVehicleKill || flightByReentry
+                const killShip   = isShipKill ? (currentShip || lastShip || (pendingVehicleDestroy && pendingVehicleDestroy.ship) || '') : ''
                 // Capture the weapon the attacker had drawn AT kill time — for an
-                // on-foot kill this IS the FPS weapon used. Null while in a ship.
-                const handWeapon = inShip ? null : weaponInHand
-                pendingKill = { ...kill, weapon: null, handWeapon, timer: setTimeout(() => {
+                // on-foot kill this IS the FPS weapon used. Null for a ship kill.
+                const handWeapon = isShipKill ? null : weaponInHand
+                pendingKill = { ...kill, weapon: null, handWeapon,
+                  method: isShipKill ? 'ship' : 'fps', ship: killShip,
+                  timer: setTimeout(() => {
                   if (pendingKill && pendingKill.victim === kill.victim) {
                     handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts,
                       pendingKill.handWeapon || pendingKill.weapon, win,
-                      { ship: currentShip, bounty: activeBounty })
+                      { ship: pendingKill.ship, method: pendingKill.method, bounty: activeBounty })
                     pendingKill = null
                   }
                 }, 35000)}
@@ -886,7 +915,7 @@ async function handleKill(crime, victim, ts, weapon, win, ctx = {}) {
   const attacker    = cfg.attacker_handle || 'Unknown'
   const personalWebhook = cfg.personal_enabled ? cfg.personal_webhook : ''
   const weaponLabel = weapon ? fmtWeapon(weapon) : null
-  const ship        = cleanShipName(ctx.ship || currentShip || '')
+  const ship        = cleanShipName(ctx.ship || currentShip || lastShip || '')
   const bounty      = ctx.bounty || activeBounty || null
   const zone        = ctx.location || fmtZone() || ''
 
@@ -894,7 +923,11 @@ async function handleKill(crime, victim, ts, weapon, win, ctx = {}) {
   const wasVehicleKill = pendingVehicleDestroy &&
     pendingVehicleDestroy.victim.toLowerCase() === victim.toLowerCase() &&
     (Date.now() - new Date(pendingVehicleDestroy.ts || 0).getTime()) < 10000
-  const killMethod = (inShip || wasVehicleKill) ? 'ship' : 'fps'
+  // Prefer the method captured at detection time (ctx.method). Fall back to a
+  // live computation for callers that don't pass one (e.g. bounty kills): seated,
+  // a vehicle destroy, or empty hands + a known last ship all count as flight.
+  const flightByReentry = !inShip && !weaponInHand && !!lastShip
+  const killMethod = ctx.method || ((inShip || wasVehicleKill || flightByReentry) ? 'ship' : 'fps')
   if (wasVehicleKill) pendingVehicleDestroy = null
 
   // ── Kill type: bounty / lawful / unlawful ─────────────────────────────────
