@@ -1,6 +1,6 @@
 {
   "name": "sckillboard",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "description": "scKillboard - Star Citizen Kill Tracker",
   "main": "src/main.js",
   "scripts": {
