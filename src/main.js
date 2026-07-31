@@ -1,5 +1,5 @@
 /**
- * scKillboard - Main Process v1.4.7
+ * scKillboard - Main Process v1.4.8
  * Handles window creation, IPC, Game.log watching, API calls + RSI profile sync.
  */
 
@@ -184,14 +184,20 @@ async function fetchRsiProfile(handle) {
     handle, display: handle,
     avatar_url: '', org_logo: '', org_name: '', org_sid: '', org_rank: '',
     enlisted: '', location: '',
+    found: false,        // true only when a real RSI citizen page was loaded
+    lookup: 'error',     // 'found' | 'notfound' (clean 404) | 'error' (couldn't tell)
     profile_url: `https://robertsspaceindustries.com/en/citizens/${encodeURIComponent(handle)}`
   }
+  let sawNotFound = false
   for (const url of [
     `https://robertsspaceindustries.com/en/citizens/${encodeURIComponent(handle)}`,
     `https://robertsspaceindustries.com/citizens/${encodeURIComponent(handle)}`,
   ]) {
     try {
       const res = await httpGet(url)
+      // A clean 404 means RSI has no such citizen — the strongest "not a real
+      // player" signal we get. Anything else non-200 is treated as uncertain.
+      if (res.status === 404) { sawNotFound = true; continue }
       if (res.status !== 200 || res.body.length < 500) continue
       const html = res.body
 
@@ -231,11 +237,16 @@ async function fetchRsiProfile(handle) {
       }
 
       profile.profile_url = url
+      profile.found  = true
+      profile.lookup = 'found'
       break
     } catch(e) {
       console.log(`RSI fetch failed for ${handle}: ${e.message}`)
     }
   }
+  // Distinguish a confirmed "no such citizen" (clean 404 → NPC) from a lookup we
+  // simply couldn't complete (network/timeout/rate-limit → uncertain, don't drop).
+  if (!profile.found) profile.lookup = sawNotFound ? 'notfound' : 'error'
   return profile
 }
 
@@ -335,7 +346,10 @@ async function syncAllProfiles(handles, win) {
 let watcherInterval = null
 let logPosition     = 0
 let pendingCrime    = null
-let pendingKill     = null
+// victim(lowercased) -> pending kill entry, each with its OWN 35s timer. Keyed by
+// victim so rapid kills on DIFFERENT victims within the window can't overwrite one
+// another — the old single-slot design silently dropped the earlier victim's kill.
+const pendingKills  = new Map()
 let killCount       = 0
 
 // ── Ship + bounty state ───────────────────────────────────────────────────────
@@ -684,16 +698,18 @@ function startWatcher(logPath, win) {
                 // Capture the weapon the attacker had drawn AT kill time — for an
                 // on-foot kill this IS the FPS weapon used. Null for a ship kill.
                 const handWeapon = isShipKill ? null : weaponInHand
-                pendingKill = { ...kill, weapon: null, handWeapon,
-                  method: isShipKill ? 'ship' : 'fps', ship: killShip,
-                  timer: setTimeout(() => {
-                  if (pendingKill && pendingKill.victim === kill.victim) {
-                    handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts,
-                      pendingKill.handWeapon || pendingKill.weapon, win,
-                      { ship: pendingKill.ship, method: pendingKill.method, bounty: activeBounty })
-                    pendingKill = null
-                  }
-                }, 35000)}
+                const vkey = victim.toLowerCase()
+                const prevPending = pendingKills.get(vkey)
+                if (prevPending && prevPending.timer) clearTimeout(prevPending.timer) // same victim re-reported → replace, keep one
+                const entry = { ...kill, weapon: null, handWeapon,
+                  method: isShipKill ? 'ship' : 'fps', ship: killShip, bounty: activeBounty }
+                entry.timer = setTimeout(() => {
+                  pendingKills.delete(vkey)
+                  handleKill(entry.crime, entry.victim, entry.ts,
+                    entry.handWeapon || entry.weapon, win,
+                    { ship: entry.ship, method: entry.method, bounty: entry.bounty })
+                }, 35000)
+                pendingKills.set(vkey, entry)
                 const isBounty = activeBounty && activeBounty.target &&
                   activeBounty.target.toLowerCase() === victim.toLowerCase()
                 const killTypeLabel = isBounty ? '🎯 BOUNTY' : UNLAWFUL_CRIMES.has(crime) ? '🔴 UNLAWFUL' : '🔵 LAWFUL'
@@ -702,19 +718,27 @@ function startWatcher(logPath, win) {
               }
             } else if (line.trim()) { pendingCrime = null }
           }
-          if (pendingKill) {
+          if (pendingKills.size) {
             const cm2 = CORPSE_RE.exec(line)
-            if (cm2 && !pendingKill.weapon) {
-              pendingKill.weapon = cm2[1]
-              clearTimeout(pendingKill.timer)
-              // Prefer the attacker's in-hand weapon (the actual kill weapon);
-              // fall back to the corpse-recovered weapon if none was tracked.
-              handleKill(pendingKill.crime, pendingKill.victim, pendingKill.ts,
-                pendingKill.handWeapon || pendingKill.weapon, win,
-                { ship: currentShip, bounty: activeBounty })
-              pendingKill = null
+            if (cm2) {
+              // Attach the corpse-recovered weapon to the OLDEST pending kill still
+              // missing a weapon, and submit it early (before its 35s timeout).
+              for (const [vkey, entry] of pendingKills) {
+                if (!entry.weapon) {
+                  entry.weapon = cm2[1]
+                  clearTimeout(entry.timer)
+                  pendingKills.delete(vkey)
+                  // Prefer the attacker's in-hand weapon (the actual kill weapon);
+                  // fall back to the corpse-recovered weapon if none was tracked.
+                  handleKill(entry.crime, entry.victim, entry.ts,
+                    entry.handWeapon || entry.weapon, win,
+                    { ship: entry.ship, method: entry.method, bounty: entry.bounty })
+                  break
+                }
+              }
             }
           }
+
 
           // ── Fallback forensics: ProcessHit damage tracking ─────────────
           // Only fires for hits dealt BY the local player. Used to detect
@@ -933,6 +957,17 @@ async function handleKill(crime, victim, ts, weapon, win, ctx = {}) {
     fetchRsiProfile(victim).catch(() => ({ handle: victim })),
   ])
 
+  // ── NPC guard ──────────────────────────────────────────────────────────────
+  // Real players ALWAYS have an RSI profile; NPCs never do. This catches NPCs the
+  // whitespace filter misses — e.g. single-token names in the Russian client, or
+  // bounty targets like "Targets". Only skip on a CONFIRMED 404 (vp.lookup ===
+  // 'notfound'); a transient lookup failure ('error') still posts, so a brief RSI
+  // outage can't silently drop real kills.
+  if (vp && vp.lookup === 'notfound') {
+    win.webContents.send('log', 'info', `↷ Skipping "${victim}" — no RSI profile found (NPC, not a real player)`)
+    return
+  }
+
   try {
     const result = await apiRequest('POST', '/kill', {
       crime_type: crime, victim, attacker, timestamp: ts,
@@ -975,6 +1010,12 @@ async function handleDeath(crime, killer, me, ts, win, killMethod = 'fps', locat
       fetchRsiProfile(killer).catch(() => ({ handle: killer })),
       fetchRsiProfile(me).catch(()     => ({ handle: me })),
     ])
+    // NPC guard (death side): if the KILLER has no RSI profile (confirmed 404),
+    // an NPC killed you — not a PvP death. Skip. Uncertain lookups still post.
+    if (ap && ap.lookup === 'notfound') {
+      win.webContents.send('log', 'info', `↷ Skipping death — killer "${killer}" has no RSI profile (NPC, not a real player)`)
+      return
+    }
     const result = await apiRequest('POST', '/kill', {
       crime_type: crime, victim: me, attacker: killer, timestamp: ts,
       method: 'crime_victim',
